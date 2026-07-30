@@ -166,3 +166,7 @@ sheet/
 
 - The "used" columns on the Fishes Caught tab can hold multiple bait/gear names separated by commas or semicolons; blank, `0`, `-`, `none`, or `n/a` all mean "nothing used."
 - Matching a fish catch back to inventory items is by **Name only** (case-insensitive, trimmed) — if the same name exists under multiple owners in a category, a catch referencing that name will show against all of them, since the sheet doesn't record whose specific item was used.
+
+## License
+
+MIT — see [LICENSE](LICENSE). See [AUTHORS.md](AUTHORS.md) for authorship.
