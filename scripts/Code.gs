@@ -1,12 +1,12 @@
 /**
- * Visvang Inventory — Apps Script backend
+ * Fishing Inventory — Apps Script backend
  *
  * Sheet layout expected (header row 1, data from row 2):
- *   Dips, Sprays, Mielies, Deegies : Brand | Name | Owner | (Status - auto-added)
+ *   Dips, Sprays, Corn, Dough     : Brand | Name | Owner | (Status - auto-added)
  *   Floats                        : Brand | Name | Type | Owner | (Status - auto-added)
- *   Validations                   : Brands (col A) | Mense (col B) | Float Types (col C) | Fish Types (col D) | Venues (col E)
+ *   Validations                   : Brands (col A) | People (col B) | Float Types (col C) | Fish Types (col D) | Venues (col E)
 
- *   Fish Caught:   Date | Fish Type | Weight (kg) | Caught By | Venue | Dips | Sprays | Mielies | Floats | Deegies | Notes (optional)
+ *   Fish Caught:   Date | Fish Type | Weight (kg) | Caught By | Venue | Dips | Sprays | Corn | Floats | Dough | Notes (optional)
  *
  * "Quantity" = number of matching rows. There is no dedicated qty column —
  * each row represents one item a person has, so counting rows per
@@ -37,18 +37,18 @@ const VALIDATION_COLUMNS = {
   FISH_TYPES: 4,
   VENUES: 5
 };
-const CATEGORIES = ['Dips', 'Sprays', 'Mielies', 'Floats', 'Deegies'];
+const CATEGORIES = ['Dips', 'Sprays', 'Corn', 'Floats', 'Dough'];
 
-const FISH_SHEET_NAME = 'Visse Gevang';
+const FISH_SHEET_NAME = 'Fishes Caught';
 
-// Keywords used to locate each category's column in the Visse Gevang
+// Keywords used to locate each category's column in the Fishes Caught
 // sheet by header text, so exact column order/spacing doesn't matter.
 const FISH_COLUMN_KEYWORDS = {
   Dips: 'dip',
   Floats: 'float',
-  Mielies: 'mielie',
+  Corn: 'corn',
   Sprays: 'spray',
-  Deegies: 'deeg'
+  Dough: 'dough'
 };
 
 /**
@@ -112,7 +112,7 @@ function addValidationValue_(column, value) {
 function doGet(e) {
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
-    .setTitle('Visvang Inventory')
+    .setTitle('Fishing Inventory')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
@@ -251,9 +251,9 @@ function saveVenueIfNew_(venue) {
 }
 
 /**
- * Appends a new fish catch entry to the Visse Gevang sheet, recording any
+ * Appends a new fish catch entry to the fishes caught sheet, recording any
  * new venue/fish type into the Validations sheet along the way.
- * @param {Object} catchData - {fishType, weight, where, date, owner, dips, floats, mielies, sprays, deegies}.
+ * @param {Object} catchData - {fishType, weight, where, date, owner, dips, floats, corn, sprays, dough}.
  * @return {boolean} true on success.
  */
 function saveFishCatch(catchData) {
@@ -273,9 +273,9 @@ function saveFishCatch(catchData) {
     catchData.owner,
     JSON.stringify(catchData.dips || []),
     JSON.stringify(catchData.floats || []),
-    JSON.stringify(catchData.mielies || []),
+    JSON.stringify(catchData.corn || []),
     JSON.stringify(catchData.sprays || []),
-    JSON.stringify(catchData.deegies || [])
+    JSON.stringify(catchData.dough || [])
   ]);
 
   return true;
@@ -312,19 +312,19 @@ function itemExists_(category, brand, name, owner) {
  */
 function addEntry(entry) {
   if (CATEGORIES.indexOf(entry.category) === -1) {
-    throw new Error('Onbekende kategorie: ' + entry.category);
+    throw new Error('Unknown category: ' + entry.category);
   }
   const name = (entry.name || '').toString().trim();
   const owner = (entry.owner || '').toString().trim();
   const brand = (entry.brand || '').toString().trim();
   const type = (entry.type || '').toString().trim();
 
-  if (!name) throw new Error('Naam is verpligtend.');
-  if (!owner) throw new Error('Eienaar is verpligtend.');
+  if (!name) throw new Error('Name is required.');
+  if (!owner) throw new Error('Owner is required.');
 
   if (itemExists_(entry.category, brand, name, owner)) {
     throw new Error(
-      (brand || "") + " - " + (name || '') + ' bestaan reeds vir ' + owner + ' onder ' + entry.category + '.'
+      (brand || "") + " - " + (name || '') + ' already exists for ' + owner + ' under ' + entry.category + '.'
     );
   }
 
@@ -449,9 +449,9 @@ Logger.log(values[0]);
   const index = {
     Dips:{},
     Sprays:{},
-    Mielies:{},
+    Corn:{},
     Floats:{},
-    Deegies:{}
+    Dough:{}
   };
 
   values.forEach(function(row){
@@ -471,9 +471,9 @@ Logger.log(values[0]);
       combo:{
         Dips: parseList_(row[5]),
         Floats: parseList_(row[6]),
-        Mielies: parseList_(row[7]),
+        Corn: parseList_(row[7]),
         Sprays: parseList_(row[8]),
-        Deegies: parseList_(row[9])
+        Dough: parseList_(row[9])
       }
 
     };
@@ -533,8 +533,8 @@ function parseList_(value){
 }
 
 /**
- * Reads and normalizes every row of the Visse Gevang (Fish Caught) sheet.
- * @return {Array<Object>} Array of {fishType, weight, where, date, owner, dips, floats, mielies, sprays, deegies}.
+ * Reads and normalizes every row of the fishes caught (Fish Caught) sheet.
+ * @return {Array<Object>} Array of {fishType, weight, where, date, owner, dips, floats, corn, sprays, dough}.
  */
 function getFishCatches() {
 
@@ -557,9 +557,9 @@ function getFishCatches() {
 
       dips: parseList_(r[5]),
       floats: parseList_(r[6]),
-      mielies: parseList_(r[7]),
+      corn: parseList_(r[7]),
       sprays: parseList_(r[8]),
-      deegies: parseList_(r[9])
+      dough: parseList_(r[9])
     };
 
   });

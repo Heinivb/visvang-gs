@@ -8,15 +8,15 @@
 <body>
   <div class="app">
     <header class="app-header">
-      <h1>🎣 Visvang</h1>
-      <p class="subtitle">Dips · Sprays · Mielies · Floats · Deegies</p>
+      <h1>🎣 Fishing</h1>
+      <p class="subtitle">Dips · Sprays · Corn · Floats · Dough</p>
     </header>
 
     <nav class="tabs" id="tabs">
       <button class="tab-btn active" data-tab="browse">Browse</button>
       <button class="tab-btn" data-tab="compare">Stats</button>
-      <button class="tab-btn" data-tab="fish">Visse Gevang</button>
-      <button class="tab-btn" data-tab="restock">Restock</button>
+      <button class="tab-btn" data-tab="fish">Fishes Caught</button>
+      <button class="tab-btn" data-tab="restock">Requires Restock</button>
       <button class="tab-btn" data-tab="add">Add Entry</button>
     </nav>
 
@@ -112,9 +112,9 @@
             <select id="addCategory" required>
               <option value="Dips">Dips</option>
               <option value="Sprays">Sprays</option>
-              <option value="Mielies">Mielies</option>
+              <option value="Corn">Corn</option>
               <option value="Floats">Floats</option>
-              <option value="Deegies">Deegies</option>
+              <option value="Dough">Dough</option>
             </select>
           </label>
 
@@ -256,13 +256,13 @@
   <div id="infoModal" class="modal-overlay" hidden>
     <div class="modal-card modal-small">
       <div class="modal-header modal-header-warning">
-        <h3 id="infoModalTitle">Wag 'n bietjie</h3>
-        <button type="button" class="modal-close" id="infoModalClose" aria-label="Maak toe">&times;</button>
+        <h3 id="infoModalTitle">Just a moment</h3>
+        <button type="button" class="modal-close" id="infoModalClose" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
         <p class="info-modal-icon">⚠️</p>
         <p id="infoModalMessage" class="info-modal-message"></p>
-        <button type="button" class="primary-btn" id="infoModalOk">Verstaan, dankie</button>
+        <button type="button" class="primary-btn" id="infoModalOk">Got it, thanks</button>
       </div>
     </div>
   </div>

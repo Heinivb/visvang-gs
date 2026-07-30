@@ -1,5 +1,5 @@
 <script>
-  var CATEGORIES = ['Dips', 'Sprays', 'Mielies', 'Floats', 'Deegies'];
+  var CATEGORIES = ['Dips', 'Sprays', 'Corn', 'Floats', 'Dough'];
   var BRANDS = [];
   var allData = null;      // category -> array of items
   var validations = null;  // {brands, owners, floatTypes}
@@ -596,7 +596,7 @@
     document.getElementById('fishModal').hidden = true;
   }
 
-  // ---------- INFO / WARNING MODAL (Afrikaans pop-ups) ----------
+  // ---------- INFO / WARNING MODAL ----------
 
   /**
    * Wires up the generic info/warning modal's close controls, backdrop
@@ -618,11 +618,11 @@
   /**
    * Shows the generic info/warning modal with the given message and title.
    * @param {string} message - Body text to display.
-   * @param {string} [title] - Modal title (defaults to an Afrikaans "wait a moment" prompt).
+   * @param {string} [title] - Modal title (defaults to a "wait a moment" prompt).
    * @return {void}
    */
   function showInfoModal(message, title) {
-    document.getElementById('infoModalTitle').textContent = title || 'Wag \'n bietjie';
+    document.getElementById('infoModalTitle').textContent = title || 'Just a moment';
     document.getElementById('infoModalMessage').textContent = message;
     document.getElementById('infoModal').hidden = false;
   }
@@ -780,17 +780,17 @@ function saveCatch(e){
 
         dips:[],
         sprays:[],
-        mielies:[],
+        corn:[],
         floats:[],
-        deegies:[]
+        dough:[]
 
     };
     var map = {
     Dips: "dips",
     Sprays: "sprays",
-    Mielies: "mielies",
+    Corn: "corn",
     Floats: "floats",
-    Deegies: "deegies"
+    Dough: "dough"
   };
 
     document
@@ -1285,30 +1285,30 @@ function setupRecordCatchModal() {
 
       if (!entry.name || !entry.owner) {
         status.className = 'status-msg error';
-        status.textContent = 'Naam en Eienaar is verpligtend.';
-        showInfoModal('Jy moet \'n Naam en \'n Eienaar invul voordat jy kan stoor.', 'Wag \'n bietjie');
+        status.textContent = 'Name and Owner are required.';
+        showInfoModal('You must fill in a Name and an Owner before you can save.', 'Just a moment');
         return;
       }
 
       submitBtn.disabled = true;
       status.className = 'status-msg';
-      status.textContent = 'Stoor tans\u2026';
+      status.textContent = 'Saving\u2026';
 
       google.script.run
         .withSuccessHandler(function () {
           status.className = 'status-msg success';
-          status.textContent = 'Bygevoeg \u2713';
+          status.textContent = 'Added \u2713';
           document.getElementById('addForm').reset();
           toggleTypeField();
           submitBtn.disabled = false;
           loadEverything(); // refresh browse/compare with the new entry
         })
         .withFailureHandler(function (err) {
-          var message = err.message || 'Iets het verkeerd geloop.';
+          var message = err.message || 'Something went wrong.';
           status.className = 'status-msg error';
           status.textContent = message;
           submitBtn.disabled = false;
-          showInfoModal(message, 'Kon nie stoor nie');
+          showInfoModal(message, 'Could not save');
         })
         .addEntry(entry);
     });
