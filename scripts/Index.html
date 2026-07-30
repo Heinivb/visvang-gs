@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Stylesheet'); ?>
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <h1>🎣 Visvang</h1>
+      <p class="subtitle">Dips · Sprays · Mielies · Floats · Deegies</p>
+    </header>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab-btn active" data-tab="browse">Browse</button>
+      <button class="tab-btn" data-tab="compare">Stats</button>
+      <button class="tab-btn" data-tab="fish">Visse Gevang</button>
+      <button class="tab-btn" data-tab="restock">Restock</button>
+      <button class="tab-btn" data-tab="add">Add Entry</button>
+    </nav>
+
+    <main>
+      <!-- BROWSE TAB -->
+      <section id="tab-browse" class="tab-panel active">
+        <div class="filter-bar">
+          <label class="field">
+            <span>Owner</span>
+            <select id="browseOwner">
+              <option value="__all__">All owners</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Category</span>
+            <select id="browseCategory">
+              <option value="__all__">All categories</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Brand</span>
+            <select id="browseBrand">
+              <option value="__all__">All brands</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Fish Caught</span>
+            <select id="browseFishCaught">
+              <option value="__all__">-</option>
+              <option value="caught">Caught Fish</option>
+              <option value="notcaught">No Fish</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Search</span>
+            <input type="search" id="browseSearch" placeholder="Search by name"/>
+          </label>
+        </div>
+        <div id="browseResults" class="results">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Loading your gear&hellip;</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- COMPARE TAB -->
+      <section id="tab-compare" class="tab-panel">
+        <p class="hint">Total quantity (item count) per owner, by category. 👑 marks whoever has the most of each.</p>
+        <div id="compareTable" class="compare-wrap">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Crunching the numbers&hellip;</span>
+          </div>
+        </div>
+
+        <div id="statsExtras" class="stats-extras">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Digging up interesting stats&hellip;</span>
+          </div>
+        </div>
+      </section> 
+      <!-- FISH TAB -->
+      <section id="tab-fish" class="tab-panel">
+      
+        <div id="fishCatchList" class="results">
+      
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Loading catches...</span>
+          </div>
+      
+        </div>
+      
+      </section>
+      <!-- RESTOCK TAB -->
+      <section id="tab-restock" class="tab-panel">
+        <p class="hint">Items marked "Used Up" on the Browse tab — time to restock these.</p>
+        <div id="restockResults" class="results">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Checking stock levels&hellip;</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ADD ENTRY TAB -->
+      <section id="tab-add" class="tab-panel">
+        <form id="addForm" class="entry-form">
+          <label class="field">
+            <span>Category</span>
+            <select id="addCategory" required>
+              <option value="Dips">Dips</option>
+              <option value="Sprays">Sprays</option>
+              <option value="Mielies">Mielies</option>
+              <option value="Floats">Floats</option>
+              <option value="Deegies">Deegies</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Brand</span>
+            <input id="addBrand" list="brandOptions" placeholder="e.g. Hengel Vriend" autocomplete="off">
+            <datalist id="brandOptions"></datalist>
+          </label>
+
+          <label class="field">
+            <span>Name</span>
+            <input id="addName" placeholder="e.g. Honey +" required autocomplete="off">
+          </label>
+
+          <label class="field" id="typeField" hidden>
+            <span>Type</span>
+            <input id="addType" list="floatTypeOptions" placeholder="e.g. Soft / Ooze" autocomplete="off">
+            <datalist id="floatTypeOptions"></datalist>
+          </label>
+
+          <label class="field">
+            <span>Owner</span>
+            <input id="addOwner" list="ownerOptions" placeholder="e.g. Heini" required autocomplete="off">
+            <datalist id="ownerOptions"></datalist>
+          </label>
+
+          <button type="submit" class="primary-btn" id="addSubmitBtn">Add Entry</button>
+          <p id="addStatus" class="status-msg" role="status"></p>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <div id="fishModal" class="modal-overlay" hidden>
+    <div class="modal-card modal-large">
+      <div class="modal-header">
+        <h3 id="fishModalTitle">Caught with this</h3>
+        <button type="button" class="modal-close" id="fishModalClose" aria-label="Close">&times;</button>
+      </div>
+      <div id="fishModalBody" class="modal-body"></div>
+    </div>
+  </div>
+  <div id="recordCatchModal" class="modal-overlay" hidden>
+
+    <div class="modal-card modal-large">
+
+        <div class="modal-header">
+
+            <h3>Record Fish</h3>
+
+            <button
+                type="button"
+                class="modal-close"
+                id="recordCatchClose">
+
+                &times;
+
+            </button>
+
+        </div>
+
+        <div class="modal-body">
+
+            <form id="recordCatchForm" class="entry-form">
+
+                <label class="field">
+                    <span>Date</span>
+                    <input
+                        type="date"
+                        id="catchDate"
+                        required>
+                </label>
+
+                <label class="field">
+                    <span>Fish</span>
+                    <input
+                        id="catchFishType"
+                        list="fishTypeOptions"
+                        required>
+
+                    <datalist id="fishTypeOptions"></datalist>
+                </label>
+
+                <label class="field">
+                    <span>Weight (kg)</span>
+                    <input
+                        type="number"
+                        step="0.01"
+                        id="catchWeight">
+                </label>
+
+                <label class="field">
+                    <span>Caught By</span>
+                    <input
+                        id="catchOwner"
+                        list="ownerOptions"
+                        required>
+                </label>
+
+                <label class="field">
+
+                    <span>Where</span>
+
+                    <select id="catchVenue">
+
+                    </select>
+
+                </label>
+
+                <label
+                    class="field"
+                    id="otherVenueField"
+                    hidden>
+
+                    <span>New Venue</span>
+
+                    <input
+                        id="otherVenue">
+
+                </label>
+
+                <div id="catchBaitSelections"></div>
+
+                <button
+                    type="submit"
+                    class="primary-btn">
+
+                    Save Catch
+
+                </button>
+
+            </form>
+
+        </div>
+
+    </div>
+
+</div>
+  <div id="infoModal" class="modal-overlay" hidden>
+    <div class="modal-card modal-small">
+      <div class="modal-header modal-header-warning">
+        <h3 id="infoModalTitle">Wag 'n bietjie</h3>
+        <button type="button" class="modal-close" id="infoModalClose" aria-label="Maak toe">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="info-modal-icon">⚠️</p>
+        <p id="infoModalMessage" class="info-modal-message"></p>
+        <button type="button" class="primary-btn" id="infoModalOk">Verstaan, dankie</button>
+      </div>
+    </div>
+  </div>
+
+  <?!= include('JavaScript'); ?>
+</body>
+</html>

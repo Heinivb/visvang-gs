@@ -1,0 +1,1332 @@
+<script>
+  var CATEGORIES = ['Dips', 'Sprays', 'Mielies', 'Floats', 'Deegies'];
+  var BRANDS = [];
+  var allData = null;      // category -> array of items
+  var validations = null;  // {brands, owners, floatTypes}
+  var fishIndex = null;    // category -> { itemNameLower: [catchEntry, ...] }
+  var fishCatches = [];
+  var currentCatchItem = null;
+  document.addEventListener('DOMContentLoaded', function () {
+    setupTabs();
+    setupBrowseFilters();
+    setupAddForm();
+    setupFishModal();
+    setupRecordCatchModal();
+    setupInfoModal();
+    loadEverything();
+  });
+
+  /**
+   * Wires up the top-level tab buttons so clicking one shows its panel
+   * and hides the others.
+   * @return {void}
+   */
+  function setupTabs() {
+    var buttons = document.querySelectorAll('.tab-btn');
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        buttons.forEach(function (b) { b.classList.remove('active'); });
+        document.querySelectorAll('.tab-panel').forEach(function (p) {
+          p.classList.remove('active');
+        });
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+      });
+    });
+  }
+
+  // Category list is static, so it's built once here. The owner list is
+  // dynamic (new owners can appear via Add Entry), so it's rebuilt on
+  // every refresh by populateOwnerFilter() — but change listeners are
+  // attached only here, once, so they never stack up on refresh.
+  /**
+   * Builds the Browse tab's category dropdown and attaches change/input
+   * listeners to all filter controls, once. Called only on page load —
+   * owner/brand option lists are refreshed separately without re-attaching
+   * listeners.
+   * @return {void}
+   */
+  function setupBrowseFilters() {
+    var catSelect = document.getElementById('browseCategory');
+    document.getElementById('browseFishCaught').addEventListener('change', renderBrowse);
+    CATEGORIES.forEach(function (cat) {
+      var opt = document.createElement('option');
+      opt.value = cat;
+      opt.textContent = cat;
+      catSelect.appendChild(opt);
+    });
+    catSelect.addEventListener('change', renderBrowse);
+    document.getElementById('browseSearch').addEventListener('input', renderBrowse);
+    document.getElementById('browseBrand').addEventListener('change', renderBrowse);
+    document.getElementById('browseOwner').addEventListener('change', renderBrowse);
+  }
+
+  /**
+   * Replaces a container's content with a spinner and message.
+   * @param {string} containerId - Element id of the container to fill.
+   * @param {string} message - Loading message to display.
+   * @return {void}
+   */
+  function showLoading(containerId, message) {
+    var el = document.getElementById(containerId);
+    el.innerHTML = '<div class="loading-state"><div class="spinner"></div><span>' +
+      escapeHtml(message) + '</span></div>';
+  }
+
+  /**
+   * Kicks off all server round-trips needed to populate the app
+   * (inventory data, validations, fish catch index, fish catches) and
+   * re-renders each tab as its data arrives.
+   * @return {void}
+   */
+  function loadEverything() {
+    showLoading('browseResults', 'Loading your gear\u2026');
+    showLoading('compareTable', 'Crunching the numbers\u2026');
+    showLoading('restockResults', 'Checking stock levels\u2026');
+
+    google.script.run
+      .withSuccessHandler(function (data) {
+        allData = data;
+        renderBrowse();
+        renderCompare();
+        renderRestock();
+        renderStats();
+      })
+      .withFailureHandler(showLoadError)
+      .getAllData();
+
+    google.script.run
+      .withSuccessHandler(function (v) {
+        validations = v;
+        populateOwnerFilter();
+        populateBrandFilter();
+        populateFormDatalists();
+      })
+      .withFailureHandler(showLoadError)
+      .getValidations();
+
+    google.script.run
+      .withSuccessHandler(function (idx) {
+        console.log("Fish index received", idx);
+        fishIndex = idx;
+        renderBrowse();
+        renderBrowse(); // re-render so fish icons pick up the index
+        renderStats();
+      })
+      .withFailureHandler(function (err) {
+        console.error(err);
+        alert(JSON.stringify(err));
+      })
+      .getFishCatchIndex();
+    google.script.run
+      .withSuccessHandler(function (data) {
+        fishCatches = data;
+        renderFishTab();
+        renderStats();
+      })
+      .withFailureHandler(function () {
+        fishCatches = [];
+        renderFishTab();
+        renderStats();
+      })
+      .getFishCatches();
+  }
+
+  /**
+   * Displays a load-failure message in the Browse, Compare, and Restock
+   * containers.
+   * @param {Error|Object} err - Error from a failed google.script.run call.
+   * @return {void}
+   */
+  function showLoadError(err) {
+    var msg = '<div class="empty-state">Could not load data: ' + escapeHtml(err.message || err) + '</div>';
+    document.getElementById('browseResults').innerHTML = msg;
+    document.getElementById('compareTable').innerHTML = msg;
+    document.getElementById('restockResults').innerHTML = msg;
+  }
+
+  // ---------- BROWSE TAB ----------
+  /**
+   * Rebuilds the Browse tab's brand filter options from the latest
+   * validations, preserving the current selection if still valid.
+   * @return {void}
+   */
+  function populateBrandFilter(){
+    var brandSelect = document.getElementById('browseBrand');
+    var previousValue = brandSelect.value;
+
+    // Clear everything except the "All brands" placeholder (first option),
+    // then rebuild from the latest brand list. This is what prevents
+    // duplicates when loadEverything() runs again after adding an entry.
+    while (brandSelect.options.length > 1) {
+      brandSelect.remove(1);
+    }
+
+    validations.brands.forEach(function (brand) {
+      var opt = document.createElement('option');
+      opt.value = brand;
+      opt.textContent = brand;
+      brandSelect.appendChild(opt);
+    });
+
+    // Keep whatever the user had selected, if it's still a valid option.
+    var stillValid = Array.prototype.some.call(brandSelect.options, function (o) {
+      return o.value === previousValue;
+    });
+    brandSelect.value = stillValid ? previousValue : '__all__';
+  }
+  /**
+   * Rebuilds the Browse tab's owner filter options from the latest
+   * validations, preserving the current selection if still valid.
+   * @return {void}
+   */
+  function populateOwnerFilter() {
+    var ownerSelect = document.getElementById('browseOwner');
+    var previousValue = ownerSelect.value;
+
+    // Clear everything except the "All owners" placeholder (first option),
+    // then rebuild from the latest owner list. This is what prevents
+    // duplicates when loadEverything() runs again after adding an entry.
+    while (ownerSelect.options.length > 1) {
+      ownerSelect.remove(1);
+    }
+
+    validations.owners.forEach(function (owner) {
+      var opt = document.createElement('option');
+      opt.value = owner;
+      opt.textContent = owner;
+      ownerSelect.appendChild(opt);
+    });
+
+    // Keep whatever the user had selected, if it's still a valid option.
+    var stillValid = Array.prototype.some.call(ownerSelect.options, function (o) {
+      return o.value === previousValue;
+    });
+    ownerSelect.value = stillValid ? previousValue : '__all__';
+  }
+
+  /**
+   * Filters, sorts, and renders the Browse tab's item cards based on the
+   * current category/owner/brand/search/fish-caught filter selections.
+   * @return {void}
+   */
+  function renderBrowse() {
+  if (!allData) return;
+
+  var ownerFilter = document.getElementById('browseOwner').value;
+  var categoryFilter = document.getElementById('browseCategory').value;
+  var fishCaughtFilter = document.getElementById('browseFishCaught').value;
+  var brandFilter = document.getElementById('browseBrand').value;
+  var search = document.getElementById('browseSearch').value;
+
+  var container = document.getElementById('browseResults');
+  container.innerHTML = '';
+
+  var categoriesToShow = categoryFilter === '__all__' ? CATEGORIES : [categoryFilter];
+  var anyResults = false;
+
+  categoriesToShow.forEach(function (cat) {
+
+    var items = allData[cat] || [];
+
+    if (ownerFilter !== '__all__') {
+      items = items.filter(function (it) {
+        return it.owner === ownerFilter;
+      });
+    }
+    if(brandFilter !== '__all__') {
+      items = items.filter(function (it) {
+        return it.brand === brandFilter;
+      });
+    }
+    var catIndex = (fishIndex && fishIndex[cat]) || {};
+
+    if (fishCaughtFilter === "caught") {
+      items = items.filter(function (it) {
+        return (catIndex[it.name.trim().toLowerCase()] || []).length > 0;
+      });
+    }
+
+    if (fishCaughtFilter === "notcaught") {
+      items = items.filter(function (it) {
+        return (catIndex[it.name.trim().toLowerCase()] || []).length === 0;
+      });
+    }
+    if (search && search.length > 0) {
+      items = items.filter(function (it) {
+        return it.name.toLowerCase().includes(search.toLowerCase());
+      });
+    }
+    if (items.length === 0) return;
+    // Sort by brand, then name
+    items.sort(function (a, b) {
+      var brandCompare = (a.brand || '').localeCompare(b.brand || '');
+
+      if (brandCompare !== 0) {
+        return brandCompare;
+      }
+
+      return (a.name || '').localeCompare(b.name || '');
+    });
+    anyResults = true;
+    container.appendChild(buildCategoryCard(cat, items));
+  });
+
+  if (!anyResults) {
+    container.innerHTML = '<div class="empty-state">No entries match that filter.</div>';
+  }
+}
+  // Categories collapsed by the user persist across filter/refresh
+  // redraws for the session, via this set of category names.
+  var collapsedCategories = new Set();
+
+  /**
+   * Builds a collapsible card containing a table of items for one category,
+   * used by both the Browse and Restock tabs.
+   * @param {string} category - One of CATEGORIES.
+   * @param {Array<Object>} items - Item rows to render for this category.
+   * @return {HTMLElement} The category card element.
+   */
+  function buildCategoryCard(category, items) {
+    var card = document.createElement('div');
+    card.className = 'category-card';
+
+    var isCollapsed = collapsedCategories.has(category);
+
+    var header = document.createElement('button');
+    header.type = 'button';
+    header.className = 'category-card-header';
+    header.setAttribute('aria-expanded', String(!isCollapsed));
+    header.innerHTML =
+      '<span class="category-card-title">' +
+      '<span class="chevron' + (isCollapsed ? ' collapsed' : '') + '">&#9660;</span>' +
+      '<h3>' + escapeHtml(category) + '</h3>' +
+      '</span>' +
+      '<span class="badge">' + items.length + ' item' + (items.length === 1 ? '' : 's') + '</span>';
+    header.addEventListener('click', function () {
+      if (collapsedCategories.has(category)) {
+        collapsedCategories.delete(category);
+      } else {
+        collapsedCategories.add(category);
+      }
+      renderBrowse();
+    });
+    card.appendChild(header);
+
+    var showType = category === 'Floats';
+    var tableWrap = document.createElement('div');
+    tableWrap.className = 'item-table-wrap' + (isCollapsed ? ' collapsed' : '');
+    var table = document.createElement('table');
+    table.className = 'item-table';
+
+    var headCols =
+      '<th>Brand</th>' +
+      '<th>Name</th>' +
+      (showType ? '<th>Type</th>' : '') +
+      '<th>Owner</th>' +
+      '<th class="col-actions">Fish</th>' +
+      '<th class="col-actions">Record</th>' +
+      '<th class="col-actions">Status</th>';
+
+    var catIndex = (fishIndex && fishIndex[category]) || {};
+
+    var bodyRows = items.map(function (it) {
+
+    var catches = catIndex[it.name.trim().toLowerCase()] || [];
+
+      var fishBtn =
+        catches.length
+          ? '<button type="button" class="icon-btn" data-action="show-catches"' +
+          ' data-category="' + category + '"' +
+          ' data-name="' + escapeHtml(it.name) + '">' +
+          '🎣 <span class="badge">' + catches.length + '</span></button>'
+          : '&mdash;';
+
+      var recordBtn =
+        '<button class="icon-btn"' +
+        ' data-action="record-catch"' +
+        ' data-category="' + category + '"' +
+        ' data-name="' + escapeHtml(it.name) + '"' +
+        '>➕</button>';
+
+      var brandCell =
+        it.brand
+          ? escapeHtml(it.brand)
+          : '<input class="inline-edit"' +
+          ' data-action="edit-brand"' +
+          ' data-category="' + category + '"' +
+          ' data-row="' + it.rowIndex + '"' +
+          ' placeholder="Brand">';
+
+      var typeCell = '';
+
+      if (showType) {
+
+        typeCell =
+          it.type
+            ? escapeHtml(it.type)
+            : '<input class="inline-edit"' +
+            ' data-action="edit-type"' +
+            ' data-category="' + category + '"' +
+            ' data-row="' + it.rowIndex + '"' +
+            ' placeholder="Type">';
+
+      }
+
+      var statusBtn =
+        '<button type="button"' +
+        ' class="status-btn' + (it.usedUp ? ' is-used-up' : '') + '"' +
+        ' data-action="toggle-status"' +
+        ' data-category="' + category + '"' +
+        ' data-row="' + it.rowIndex + '"' +
+        ' data-used-up="' + it.usedUp + '">' +
+        (it.usedUp ? 'Used Up' : 'Available') +
+        '</button>';
+
+      return '<tr>' +
+        '<td class="item-name">' + brandCell + '</td>' +
+        '<td class="item-name" title="' + escapeHtml(it.name) + '">' + escapeHtml(it.name) + '</td>' +
+        (showType ? '<td>' + typeCell + '</td>' : '') +
+        '<td title="' + escapeHtml(it.owner) + '">' + escapeHtml(it.owner) + '</td>' +
+        '<td>' + fishBtn + '</td>' +
+        '<td title="Record a catch">' + recordBtn + '</td>' +
+        '<td>' + statusBtn + '</td>' +
+        '</tr>';
+
+    }).join('');
+
+    table.innerHTML = '<thead><tr>' + headCols + '</tr></thead><tbody>' + bodyRows + '</tbody>';
+    table.addEventListener('click', handleItemTableClick);
+    tableWrap.appendChild(table);
+    card.appendChild(tableWrap);
+
+    return card;
+  }
+
+  // Handles both the "show catches" and "toggle status" buttons for any
+  // item row, in Browse or Restock, via delegation on the table.
+  /**
+   * Delegated click handler for an item table: routes clicks on the
+   * "show catches", "record catch", inline-edit input, and "toggle status"
+   * controls to their respective actions.
+   * @param {MouseEvent} e - Click event on the table.
+   * @return {void}
+   */
+  function handleItemTableClick(e) {
+    var fishBtn = e.target.closest('[data-action="show-catches"]');
+    if (fishBtn) {
+      openFishModal(fishBtn.dataset.category, fishBtn.dataset.name);
+      return;
+    }
+    var recordBtn = e.target.closest('[data-action="record-catch"]');
+
+    if (recordBtn) {
+
+      openRecordCatchModal(
+        recordBtn.dataset.category,
+        recordBtn.dataset.name
+      );
+
+      return;
+
+    }
+    var edit = e.target.closest('.inline-edit');
+
+    if (edit) {
+
+      edit.addEventListener('change', function () {
+
+        google.script.run
+          .withSuccessHandler(loadEverything)
+          .updateItemField(
+            edit.dataset.category,
+            Number(edit.dataset.row),
+            edit.dataset.action === 'edit-brand'
+              ? 'brand'
+              : 'type',
+            edit.value
+          );
+
+      }, { once: true });
+
+    }
+    var statusBtn = e.target.closest('[data-action="toggle-status"]');
+    if (statusBtn) {
+      var category = statusBtn.dataset.category;
+      var rowIndex = Number(statusBtn.dataset.row);
+      var newUsedUp = statusBtn.dataset.usedUp !== 'true'; // flip current state
+      toggleItemStatus(category, rowIndex, newUsedUp, statusBtn);
+    }
+  }
+
+  /**
+   * Persists an item's used-up/available status change and updates the
+   * local cache in place so the Browse/Restock tabs don't need a full reload.
+   * @param {string} category - One of CATEGORIES.
+   * @param {number} rowIndex - The sheet row number.
+   * @param {boolean} newUsedUp - true to mark used up, false to mark available.
+   * @param {HTMLButtonElement} [btnElement] - The status button clicked, if any (disabled during the request).
+   * @return {void}
+   */
+  function toggleItemStatus(category, rowIndex, newUsedUp, btnElement) {
+    if (btnElement) btnElement.disabled = true;
+
+    google.script.run
+      .withSuccessHandler(function () {
+        // Update local state in place so we don't need a full reload.
+        var item = (allData[category] || []).find(function (it) { return it.rowIndex === rowIndex; });
+        if (item) {
+          item.usedUp = newUsedUp;
+          item.status = newUsedUp ? 'Used Up' : 'Available';
+        }
+        renderBrowse();
+        renderRestock();
+      })
+      .withFailureHandler(function (err) {
+        if (btnElement) btnElement.disabled = false;
+        alert('Could not update status: ' + (err.message || err));
+      })
+      .setItemStatus(category, rowIndex, newUsedUp);
+  }
+
+  // ---------- RESTOCK TAB ----------
+
+  /**
+   * Renders the Restock tab: one category card per category that has at
+   * least one item marked Used Up.
+   * @return {void}
+   */
+  function renderRestock() {
+    if (!allData) return;
+    var container = document.getElementById('restockResults');
+    container.innerHTML = '';
+
+    var anyResults = false;
+
+    CATEGORIES.forEach(function (cat) {
+      var items = (allData[cat] || []).filter(function (it) { return it.usedUp; });
+      if (items.length === 0) return;
+      anyResults = true;
+      container.appendChild(buildCategoryCard(cat, items));
+    });
+
+    if (!anyResults) {
+      container.innerHTML = '<div class="empty-state">Nothing marked Used Up right now &mdash; you\u2019re fully stocked. 🎣</div>';
+    }
+  }
+
+  //-- Fish Tab
+  /**
+   * Renders the list of logged fish catches on the Fish tab.
+   * @return {void}
+   */
+  function renderFishTab() {
+    console.log("fishCatches", fishCatches);
+    var container = document.getElementById('fishCatchList');
+    console.log("container", container);
+    if (!container) return;
+    if (!Array.isArray(fishCatches)) {
+        fishCatches = [];
+    }
+     if (fishCatches.length === 0) {
+
+        container.innerHTML =
+            '<div class="empty-state">No fish have been recorded yet.</div>';
+
+        return;
+    }
+    if (!fishCatches.length) {
+
+      container.innerHTML =
+        '<div class="empty-state">No fish have been recorded yet.</div>';
+
+      return;
+
+    }
+
+    container.innerHTML =
+      fishCatches.map(function (c) {
+
+        return `
+        <div class="catch-card">
+
+            <div class="catch-title">
+                ${escapeHtml(c.fishType)}
+            </div>
+
+            <div><strong>Weight:</strong> ${escapeHtml(c.weight)} kg</div>
+
+            <div><strong>Venue:</strong> ${escapeHtml(c.where)}</div>
+
+            <div><strong>Caught By:</strong> ${escapeHtml(c.owner)}</div>
+
+            <div><strong>Date:</strong> ${new Date(c.date).toLocaleDateString()}</div>
+
+        </div>
+      `;
+
+      }).join('');
+
+  }
+  // ---------- FISH CATCH MODAL ----------
+
+  /**
+   * Wires up the "caught with this item" modal's close button, backdrop
+   * click, and Escape key handling.
+   * @return {void}
+   */
+  function setupFishModal() {
+    document.getElementById('fishModalClose').addEventListener('click', closeFishModal);
+    document.getElementById('fishModal').addEventListener('click', function (e) {
+      if (e.target.id === 'fishModal') closeFishModal();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        closeFishModal();
+        closeRecordCatchModal();
+      }
+    });
+  }
+
+  /**
+   * Hides the "caught with this item" modal.
+   * @return {void}
+   */
+  function closeFishModal() {
+    document.getElementById('fishModal').hidden = true;
+  }
+
+  // ---------- INFO / WARNING MODAL (Afrikaans pop-ups) ----------
+
+  /**
+   * Wires up the generic info/warning modal's close controls, backdrop
+   * click, and Escape key handling.
+   * @return {void}
+   */
+  function setupInfoModal() {
+    var modal = document.getElementById('infoModal');
+    document.getElementById('infoModalClose').addEventListener('click', closeInfoModal);
+    document.getElementById('infoModalOk').addEventListener('click', closeInfoModal);
+    modal.addEventListener('click', function (e) {
+      if (e.target.id === 'infoModal') closeInfoModal();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeInfoModal();
+    });
+  }
+
+  /**
+   * Shows the generic info/warning modal with the given message and title.
+   * @param {string} message - Body text to display.
+   * @param {string} [title] - Modal title (defaults to an Afrikaans "wait a moment" prompt).
+   * @return {void}
+   */
+  function showInfoModal(message, title) {
+    document.getElementById('infoModalTitle').textContent = title || 'Wag \'n bietjie';
+    document.getElementById('infoModalMessage').textContent = message;
+    document.getElementById('infoModal').hidden = false;
+  }
+
+  /**
+   * Hides the generic info/warning modal.
+   * @return {void}
+   */
+  function closeInfoModal() {
+    document.getElementById('infoModal').hidden = true;
+  }
+  /**
+   * Opens the Record Catch modal pre-filled with today's date, the venue
+   * dropdown, and bait checkboxes with the triggering item pre-checked.
+   * @param {string} category - One of CATEGORIES, for the item that triggered this.
+   * @param {string} itemName - Name of the item that triggered this.
+   * @return {void}
+   */
+  function openRecordCatchModal(category,itemName){
+
+    currentCatchItem={
+        category:category,
+        itemName:itemName
+    };
+
+    document.getElementById("recordCatchForm").reset();
+
+    document.getElementById("catchDate").value=
+        new Date().toISOString().substring(0,10);
+
+    buildVenueDropdown();
+
+    buildBaitSelections(category,itemName);
+
+    document
+        .getElementById("recordCatchModal")
+        .hidden=false;
+
+}
+/**
+ * Hides the Record Catch modal.
+ * @return {void}
+ */
+function closeRecordCatchModal(){
+
+    document
+        .getElementById("recordCatchModal")
+        .hidden=true;
+
+}
+/**
+ * Populates the Record Catch modal's venue dropdown from known venues,
+ * plus an "Other..." option.
+ * @return {void}
+ */
+function buildVenueDropdown(){
+
+    var select=document.getElementById("catchVenue");
+
+    select.innerHTML="";
+
+    validations.venues.forEach(function(v){
+
+        var o=document.createElement("option");
+
+        o.value=v;
+        o.textContent=v;
+
+        select.appendChild(o);
+
+    });
+
+    var other=document.createElement("option");
+
+    other.value="__other__";
+    other.textContent="Other...";
+
+    select.appendChild(other);
+    if (select.options.length) {
+    select.selectedIndex = 0;
+  }
+}
+/**
+ * Populates the Record Catch modal's bait checkboxes, grouped by category,
+ * pre-checking the item that triggered the modal.
+ * @param {string} category - Category of the item that triggered this.
+ * @param {string} item - Name of the item that triggered this.
+ * @return {void}
+ */
+function buildBaitSelections(category,item){
+
+    var container=document.getElementById("catchBaitSelections");
+
+    container.innerHTML="";
+
+    CATEGORIES.forEach(function(cat){
+
+        var div=document.createElement("div");
+
+        div.className="bait-group";
+
+        div.innerHTML="<h4>"+cat+"</h4>";
+
+        (allData[cat]||[]).forEach(function(i){
+
+            var checked=
+                cat===category &&
+                i.name===item;
+
+            div.innerHTML+=
+                '<label>'+
+                '<input type="checkbox" class="baitCheck"' +
+                ' data-category="'+cat+'"' +
+                ' value="' + encodeURIComponent(i.name) + '"' +
+                (checked?" checked":"")+
+                '> '+
+                escapeHtml(i.name)+
+                '</label>';
+
+        });
+
+        container.appendChild(div);
+
+    });
+
+}
+/**
+ * Submit handler for the Record Catch form: gathers the form fields and
+ * checked bait items, then saves the catch to the server.
+ * @param {SubmitEvent} e - Form submit event.
+ * @return {void}
+ */
+function saveCatch(e){
+
+    e.preventDefault();
+
+    var data={
+
+        fishType:
+            document.getElementById("catchFishType").value,
+
+        weight:
+            document.getElementById("catchWeight").value,
+
+        owner:
+            document.getElementById("catchOwner").value,
+
+        date:
+            document.getElementById("catchDate").value,
+
+        where:
+            document.getElementById("catchVenue").value==="__other__"
+                ?document.getElementById("otherVenue").value
+                :document.getElementById("catchVenue").value,
+
+        dips:[],
+        sprays:[],
+        mielies:[],
+        floats:[],
+        deegies:[]
+
+    };
+    var map = {
+    Dips: "dips",
+    Sprays: "sprays",
+    Mielies: "mielies",
+    Floats: "floats",
+    Deegies: "deegies"
+  };
+
+    document
+        .querySelectorAll(".baitCheck:checked")
+        .forEach(function(c){
+            data[map[c.dataset.category]].push(
+            decodeURIComponent(c.value)
+          );
+        });
+
+    google.script.run
+        .withSuccessHandler(function(){
+
+            closeRecordCatchModal();
+
+            loadEverything();
+
+        })
+        .saveFishCatch(data);
+
+}
+/**
+ * Wires up the Record Catch modal's close button, backdrop click, form
+ * submit, and the venue dropdown's "Other..." toggle.
+ * @return {void}
+ */
+function setupRecordCatchModal() {
+
+    document
+      .getElementById("recordCatchClose")
+      .addEventListener("click", closeRecordCatchModal);
+
+    document
+      .getElementById("recordCatchModal")
+      .addEventListener("click", function (e) {
+
+        if (e.target.id === "recordCatchModal") {
+          closeRecordCatchModal();
+        }
+
+      });
+
+    document
+      .getElementById("recordCatchForm")
+      .addEventListener("submit", saveCatch);
+
+    document
+      .getElementById("catchVenue")
+      .addEventListener("change", function () {
+
+        document
+          .getElementById("otherVenueField")
+          .hidden = this.value !== "__other__";
+
+      });
+
+  }
+
+  /**
+   * Opens the "caught with this item" modal, listing every recorded catch
+   * that used the given item.
+   * @param {string} category - One of CATEGORIES.
+   * @param {string} itemName - Name of the item to show catches for.
+   * @return {void}
+   */
+  function openFishModal(category, itemName) {
+    var catches = (fishIndex && fishIndex[category] && fishIndex[category][itemName.toLowerCase()]) || [];
+    document.getElementById('fishModalTitle').textContent =
+      itemName + ' \u2014 caught ' + catches?.length + ' fish';
+
+    var body = document.getElementById('fishModalBody');
+
+    if (!catches?.length) {
+      body.innerHTML = '<div class="empty-state">No catches on record for this item.</div>';
+    } else {
+      body.innerHTML = catches.map(function (c) {
+        var weightText = (c.weight !== '' && c.weight !== null && c.weight !== undefined)
+          ? c.weight + ' kg' : '';
+        var comboLines = CATEGORIES.map(function (cat) {
+          if (!c.combo[cat] || !c.combo[cat].length) return '';
+          var isCurrent = cat === category && c.combo[cat].some(function (n) {
+            return n.toLowerCase() === itemName.toLowerCase();
+          });
+          return '<div class="combo-row' + (isCurrent ? ' is-current' : '') + '">' +
+            '<strong>' + escapeHtml(cat) + ':</strong> ' + escapeHtml(c.combo[cat].join(', ')) +
+            '</div>';
+        }).join('');
+
+        return '<div class="catch-entry">' +
+          '<div class="catch-entry-head">' +
+          '<span>' + escapeHtml(c.fishType || 'Unknown fish') + '</span>' +
+          (weightText ? '<span class="catch-entry-weight">' + escapeHtml(weightText) + '</span>' : '') +
+          '</div>' +
+          '<div><strong>Location:</strong> ' + escapeHtml(c.where || '-') + '</div>' +
+          '<div><strong>Date:</strong> ' + escapeHtml(c.date || '-') + '</div>' +
+          '<div><strong>Caught By:</strong> ' + escapeHtml(c.owner || '-') + '</div>' +
+          comboLines +
+          '</div>';
+      }).join('');
+    }
+
+    document.getElementById('fishModal').hidden = false;
+  }
+
+  // ---------- COMPARE TAB ----------
+
+  /**
+   * Fetches the owner x category summary from the server and renders the
+   * Compare tab's table.
+   * @return {void}
+   */
+  function renderCompare() {
+    google.script.run
+      .withSuccessHandler(function (summary) {
+        drawCompareTable(summary);
+      })
+      .withFailureHandler(function (err) {
+        document.getElementById('compareTable').innerHTML =
+          '<div class="empty-state">Could not load summary: ' + escapeHtml(err.message || err) + '</div>';
+      })
+      .getSummary();
+  }
+
+  /**
+   * Renders the Compare tab's owner x category table, highlighting the
+   * leading owner(s) per category and overall total.
+   * @param {Object} summary - Result of getSummary(): {owners, categories, counts, totals}.
+   * @return {void}
+   */
+  function drawCompareTable(summary) {
+    var container = document.getElementById('compareTable');
+    if (!summary.owners.length) {
+      container.innerHTML = '<div class="empty-state">No data yet.</div>';
+      return;
+    }
+
+    // For each category, find the highest count and which owner(s) hold it
+    // (ties share the highlight). A count of 0 is never a "leader".
+    var leaders = {}; // category -> Set of owner names tied for the max
+    summary.categories.forEach(function (cat) {
+      var max = 0;
+      summary.owners.forEach(function (owner) {
+        var c = (summary.counts[owner] && summary.counts[owner][cat]) || 0;
+        if (c > max) max = c;
+      });
+      leaders[cat] = new Set();
+      if (max > 0) {
+        summary.owners.forEach(function (owner) {
+          var c = (summary.counts[owner] && summary.counts[owner][cat]) || 0;
+          if (c === max) leaders[cat].add(owner);
+        });
+      }
+    });
+
+    // Same idea for the Total column.
+    var maxTotal = 0;
+    summary.owners.forEach(function (owner) {
+      if ((summary.totals[owner] || 0) > maxTotal) maxTotal = summary.totals[owner] || 0;
+    });
+    var totalLeaders = new Set();
+    if (maxTotal > 0) {
+      summary.owners.forEach(function (owner) {
+        if ((summary.totals[owner] || 0) === maxTotal) totalLeaders.add(owner);
+      });
+    }
+
+    var headRow = '<th>Owner</th>' + summary.categories.map(function (c) {
+      return '<th>' + escapeHtml(c) + '</th>';
+    }).join('') + '<th>Total</th>';
+
+    var bodyRows = summary.owners.map(function (owner) {
+      var cells = summary.categories.map(function (cat) {
+        var c = (summary.counts[owner] && summary.counts[owner][cat]) || 0;
+        var isLeader = leaders[cat].has(owner);
+        return '<td class="' + (isLeader ? 'cell-leader' : '') + '">' +
+          c + (isLeader ? ' <span class="crown" title="Most ' + escapeHtml(cat) + '">&#9819;</span>' : '') +
+          '</td>';
+      }).join('');
+      var total = summary.totals[owner] || 0;
+      var isTotalLeader = totalLeaders.has(owner);
+      return '<tr><td>' + escapeHtml(owner) + '</td>' + cells +
+        '<td class="' + (isTotalLeader ? 'cell-leader' : '') + '">' + total +
+        (isTotalLeader ? ' <span class="crown" title="Most overall">&#9819;</span>' : '') +
+        '</td></tr>';
+    }).join('');
+
+    var totalsRow = '<td>Category total</td>' + summary.categories.map(function (cat) {
+      var total = summary.owners.reduce(function (sum, owner) {
+        return sum + ((summary.counts[owner] && summary.counts[owner][cat]) || 0);
+      }, 0);
+      return '<td>' + total + '</td>';
+    }).join('') + '<td>' + Object.values(summary.totals).reduce(function (a, b) { return a + b; }, 0) + '</td>';
+
+    container.innerHTML = '<table class="compare-table">' +
+      '<thead><tr>' + headRow + '</tr></thead>' +
+      '<tbody>' + bodyRows + '</tbody>' +
+      '<tfoot><tr>' + totalsRow + '</tr></tfoot>' +
+      '</table>';
+  }
+
+  // ---------- STATS TAB EXTRAS ----------
+  // These are computed entirely client-side from data already loaded
+  // (allData, fishCatches, fishIndex), so no extra server round-trip.
+
+  /**
+   * Derives all Stats tab figures client-side from the already-loaded
+   * allData/fishCatches/fishIndex, without an extra server round-trip.
+   * @return {?Object} Stats object, or null if allData hasn't loaded yet.
+   */
+  function computeStats() {
+    if (!allData) return null;
+
+    var totalItems = 0;
+    var usedUpCount = 0;
+    var brandCounts = {};        // brand -> total item count
+    var ownerBrandCounts = {};   // owner -> { brand -> count }
+    var categoryCounts = {};     // category -> item count
+
+    CATEGORIES.forEach(function (cat) {
+      var items = allData[cat] || [];
+      categoryCounts[cat] = items.length;
+      items.forEach(function (it) {
+        totalItems++;
+        if (it.usedUp) usedUpCount++;
+
+        var brand = (it.brand || '').trim();
+        if (!brand) return;
+
+        brandCounts[brand] = (brandCounts[brand] || 0) + 1;
+
+        var owner = it.owner || 'Unknown';
+        if (!ownerBrandCounts[owner]) ownerBrandCounts[owner] = {};
+        ownerBrandCounts[owner][brand] = (ownerBrandCounts[owner][brand] || 0) + 1;
+      });
+    });
+
+    // Most-used brand per owner (ties broken by whichever brand sorts
+    // first — rare enough not to worry about surfacing both).
+    var topBrandByOwner = {};
+    Object.keys(ownerBrandCounts).forEach(function (owner) {
+      var brands = ownerBrandCounts[owner];
+      var best = null, bestCount = 0;
+      Object.keys(brands).sort().forEach(function (b) {
+        if (brands[b] > bestCount) { best = b; bestCount = brands[b]; }
+      });
+      if (best) topBrandByOwner[owner] = { brand: best, count: bestCount };
+    });
+
+    // Top 5 brands overall by total item count.
+    var topBrandsOverall = Object.keys(brandCounts)
+      .map(function (b) { return { brand: b, count: brandCounts[b] }; })
+      .sort(function (a, b) { return b.count - a.count || a.brand.localeCompare(b.brand); })
+      .slice(0, 5);
+
+    var largestCategory = null;
+    CATEGORIES.forEach(function (cat) {
+      if (!largestCategory || categoryCounts[cat] > categoryCounts[largestCategory]) {
+        largestCategory = cat;
+      }
+    });
+
+    // Fish-catch derived stats.
+    var catches = Array.isArray(fishCatches) ? fishCatches : [];
+    var totalFish = catches.length;
+    var totalWeight = 0, weighedCount = 0, heaviest = null;
+    var ownerCatchCounts = {};
+
+    catches.forEach(function (c) {
+      var w = Number(c.weight) || 0;
+      if (w > 0) {
+        totalWeight += w;
+        weighedCount++;
+        if (!heaviest || w > heaviest.weight) {
+          heaviest = { weight: w, fishType: c.fishType, owner: c.owner };
+        }
+      }
+      var owner = c.owner || 'Unknown';
+      ownerCatchCounts[owner] = (ownerCatchCounts[owner] || 0) + 1;
+    });
+
+    var avgWeight = weighedCount ? (totalWeight / weighedCount) : 0;
+
+    var topAngler = null;
+    Object.keys(ownerCatchCounts).forEach(function (owner) {
+      if (!topAngler || ownerCatchCounts[owner] > topAngler.count) {
+        topAngler = { owner: owner, count: ownerCatchCounts[owner] };
+      }
+    });
+
+    // "MVP bait": the single inventory item (any category) linked to the
+    // most catches, using the fish index already loaded for the icons.
+    var mvpBait = null;
+    if (fishIndex) {
+      CATEGORIES.forEach(function (cat) {
+        var catIdx = fishIndex[cat] || {};
+        var itemsInCat = allData[cat] || [];
+        Object.keys(catIdx).forEach(function (nameLower) {
+          var count = (catIdx[nameLower] || []).length;
+          if (!count) return;
+          if (!mvpBait || count > mvpBait.count) {
+            var match = itemsInCat.find(function (it) {
+              return it.name.trim().toLowerCase() === nameLower;
+            });
+            mvpBait = {
+              category: cat,
+              name: match ? match.name : nameLower,
+              count: count
+            };
+          }
+        });
+      });
+    }
+
+    return {
+      totalItems: totalItems,
+      usedUpCount: usedUpCount,
+      distinctBrands: Object.keys(brandCounts).length,
+      categoryCounts: categoryCounts,
+      largestCategory: largestCategory,
+      topBrandByOwner: topBrandByOwner,
+      topBrandsOverall: topBrandsOverall,
+      totalFish: totalFish,
+      avgWeight: avgWeight,
+      heaviest: heaviest,
+      topAngler: topAngler,
+      mvpBait: mvpBait
+    };
+  }
+
+  /**
+   * Builds the HTML for one stat tile on the Stats tab.
+   * @param {string|number} value - The stat's value.
+   * @param {string} label - The stat's label.
+   * @return {string} HTML markup for the stat card.
+   */
+  function statCard(value, label) {
+    return '<div class="stat-card"><div class="stat-value">' + escapeHtml(String(value)) + '</div>' +
+      '<div class="stat-label">' + escapeHtml(label) + '</div></div>';
+  }
+
+  /**
+   * Renders the Stats tab: stat-card grid, per-owner/overall brand
+   * breakdowns, and derived fish-catch highlights.
+   * @return {void}
+   */
+  function renderStats() {
+    if (!allData) return;
+    var container = document.getElementById('statsExtras');
+    if (!container) return;
+
+    var s = computeStats();
+
+    var cards = [
+      statCard(s.totalItems, 'Total Items'),
+      statCard(s.distinctBrands, 'Brands'),
+      statCard(s.usedUpCount, 'Needs Restock'),
+      statCard(s.totalFish, 'Fish Caught')
+    ];
+    if (s.avgWeight) cards.push(statCard(s.avgWeight.toFixed(2) + ' kg', 'Avg. Fish Weight'));
+    if (s.heaviest) cards.push(statCard(s.heaviest.weight + ' kg', 'Heaviest Fish'));
+
+    var html = '<div class="stat-grid">' + cards.join('') + '</div>';
+
+    var topBrandRows = Object.keys(s.topBrandByOwner).sort().map(function (owner) {
+      var info = s.topBrandByOwner[owner];
+      return '<div class="stats-list-item"><span>' + escapeHtml(owner) + '</span>' +
+        '<span><strong>' + escapeHtml(info.brand) + '</strong> &middot; ' + info.count + ' item' + (info.count === 1 ? '' : 's') + '</span></div>';
+    }).join('');
+
+    if (topBrandRows) {
+      html += '<div class="stats-section"><h4>Most-Used Brand per Owner</h4>' +
+        '<div class="stats-list">' + topBrandRows + '</div></div>';
+    }
+
+    var topBrandsRows = s.topBrandsOverall.map(function (b, i) {
+      return '<div class="stats-list-item"><span><span class="rank">#' + (i + 1) + '</span>' +
+        escapeHtml(b.brand) + '</span><span>' + b.count + ' item' + (b.count === 1 ? '' : 's') + '</span></div>';
+    }).join('');
+
+    if (topBrandsRows) {
+      html += '<div class="stats-section"><h4>Top Brands Overall</h4>' +
+        '<div class="stats-list">' + topBrandsRows + '</div></div>';
+    }
+
+    var notes = [];
+    if (s.largestCategory && s.totalItems) {
+      notes.push('<p class="stats-note">Your biggest category is <span class="stats-highlight">' +
+        escapeHtml(s.largestCategory) + '</span> with ' + s.categoryCounts[s.largestCategory] + ' items.</p>');
+    }
+    if (s.mvpBait) {
+      notes.push('<p class="stats-note">🏆 MVP bait: <span class="stats-highlight">' +
+        escapeHtml(s.mvpBait.name) + '</span> (' + escapeHtml(s.mvpBait.category) + ') has landed ' +
+        s.mvpBait.count + ' fish so far.</p>');
+    }
+    if (s.topAngler) {
+      notes.push('<p class="stats-note">🎣 Top angler: <span class="stats-highlight">' +
+        escapeHtml(s.topAngler.owner) + '</span> with ' + s.topAngler.count + ' catch' +
+        (s.topAngler.count === 1 ? '' : 'es') + ' logged.</p>');
+    }
+    if (s.heaviest) {
+      notes.push('<p class="stats-note">Biggest fish so far: <span class="stats-highlight">' +
+        escapeHtml(s.heaviest.fishType || 'Unknown') + '</span> at ' + s.heaviest.weight + ' kg, caught by ' +
+        escapeHtml(s.heaviest.owner || 'Unknown') + '.</p>');
+    }
+
+    if (notes.length) {
+      html += '<div class="stats-section">' + notes.join('') + '</div>';
+    }
+
+    if (!s.totalItems && !s.totalFish) {
+      html = '<div class="empty-state">Add some gear or log a catch to see stats here.</div>';
+    }
+
+    container.innerHTML = html;
+  }
+
+  // ---------- ADD ENTRY TAB ----------
+
+  /**
+   * Populates the Add Entry form's brand/owner/float-type/fish-type
+   * datalists from the latest validations.
+   * @return {void}
+   */
+  function populateFormDatalists() {
+    var brandList = document.getElementById('brandOptions');
+    brandList.innerHTML = '';
+    validations.brands.forEach(function (b) {
+      var opt = document.createElement('option');
+      opt.value = b;
+      brandList.appendChild(opt);
+    });
+
+    var ownerList = document.getElementById('ownerOptions');
+    ownerList.innerHTML = '';
+    validations.owners.forEach(function (o) {
+      var opt = document.createElement('option');
+      opt.value = o;
+      ownerList.appendChild(opt);
+    });
+
+    var floatTypeList = document.getElementById('floatTypeOptions');
+    floatTypeList.innerHTML = '';
+    validations.floatTypes.forEach(function (t) {
+      var opt = document.createElement('option');
+      opt.value = t;
+      floatTypeList.appendChild(opt);
+    });
+    var fishTypeList = document.getElementById('fishTypeOptions');
+
+    if (fishTypeList) {
+
+      fishTypeList.innerHTML = '';
+
+      validations.fishTypes.forEach(function (t) {
+
+        var opt = document.createElement('option');
+        opt.value = t;
+        fishTypeList.appendChild(opt);
+
+      });
+
+    }
+  }
+
+  /**
+   * Wires up the Add Entry form: toggling the Type field for Floats, and
+   * handling submit (validation, saving via addEntry, and feedback).
+   * @return {void}
+   */
+  function setupAddForm() {
+    var categorySelect = document.getElementById('addCategory');
+    var typeField = document.getElementById('typeField');
+
+    function toggleTypeField() {
+      typeField.hidden = categorySelect.value !== 'Floats';
+    }
+    categorySelect.addEventListener('change', toggleTypeField);
+    toggleTypeField();
+
+    document.getElementById('addForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var status = document.getElementById('addStatus');
+      var submitBtn = document.getElementById('addSubmitBtn');
+
+      var entry = {
+        category: categorySelect.value,
+        brand: document.getElementById('addBrand').value.trim(),
+        name: document.getElementById('addName').value.trim(),
+        type: document.getElementById('addType').value.trim(),
+        owner: document.getElementById('addOwner').value.trim()
+      };
+
+      if (!entry.name || !entry.owner) {
+        status.className = 'status-msg error';
+        status.textContent = 'Naam en Eienaar is verpligtend.';
+        showInfoModal('Jy moet \'n Naam en \'n Eienaar invul voordat jy kan stoor.', 'Wag \'n bietjie');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      status.className = 'status-msg';
+      status.textContent = 'Stoor tans\u2026';
+
+      google.script.run
+        .withSuccessHandler(function () {
+          status.className = 'status-msg success';
+          status.textContent = 'Bygevoeg \u2713';
+          document.getElementById('addForm').reset();
+          toggleTypeField();
+          submitBtn.disabled = false;
+          loadEverything(); // refresh browse/compare with the new entry
+        })
+        .withFailureHandler(function (err) {
+          var message = err.message || 'Iets het verkeerd geloop.';
+          status.className = 'status-msg error';
+          status.textContent = message;
+          submitBtn.disabled = false;
+          showInfoModal(message, 'Kon nie stoor nie');
+        })
+        .addEntry(entry);
+    });
+  }
+
+  // ---------- utils ----------
+
+  /**
+   * Escapes &, <, >, and " so a value can be safely inserted into HTML.
+   * @param {*} str - Value to escape.
+   * @return {string} Escaped string ('' for null/undefined).
+   */
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+</script>
