@@ -196,5 +196,3 @@ sheet/
 ## License
 
 MIT, with the [Commons Clause](https://commonsclause.com/) — see [LICENSE](LICENSE). In short: anyone can freely use, copy, modify, and share this project, but selling it, sublicensing it, or offering it as a paid product/service is reserved to the copyright holder. Commercial licensing (including royalty arrangements) is available on request — see [AUTHORS.md](AUTHORS.md) for contact info.
-
-*(This isn't legal advice — if you need this enforced, have a lawyer review it for your situation.)*
