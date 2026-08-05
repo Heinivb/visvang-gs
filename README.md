@@ -37,7 +37,7 @@ Nothing to do here — this step is just letting you know how it works, since it
 
 You do **not** need to manually type anyone's name into the spreadsheet. Owners, brands, float types, fish types, and venues all register themselves automatically the first time they're used: add a piece of gear under a new person's name via **Add Gear**, or log a catch for a new fish type/venue via **Record Fish**, and that value is added for you.
 
-If you'd rather set some of these up ahead of time (or manage them later — rename or delete a value, for example), open the app and use the **Validations** tab. If you're starting from a spreadsheet that already has gear/catches in it from before this feature existed, click **🔄 Populate from existing data** on that tab once — it scans what's already there and adds anything missing.
+If you'd rather set some of these up ahead of time (or manage them later — rename or delete a value, for example), open the app and use the **Settings** tab. If you're starting from a spreadsheet that already has gear/catches in it from before this feature existed, click **🔄 Populate from existing data** on that tab once — it scans what's already there and adds anything missing.
 
 ## Step 3 — Open the Apps Script editor
 
@@ -92,21 +92,39 @@ At this point, in the left sidebar you should see exactly these four files: `Cod
 2. Click the little gear/cog icon ⚙️ next to "Select type", and choose **Web app**.
 3. Fill in the fields:
    - **Description**: anything you like, e.g. "Fishing Inventory v1".
-   - **Execute as**: leave this as **Me (your email address)**.
+   - **Execute as**: leave this as **Me (your email address)**. This matters more than it sounds — the app's photo upload feature (see the Settings tab) saves photos into **your** Google Drive, using **your** permissions. "Execute as Me" is what makes that work: your crew doesn't need their own Drive access to the photo folder, because as far as Drive is concerned, it's always you (the person who deployed the app) doing the uploading, not each individual visitor.
    - **Who has access**: choose **Anyone with the link** (this lets your crew use it without needing their own Google account permissions set up individually), or **Anyone within [your organization]** if that option appears and fits your situation better.
 4. Click **Deploy**.
 5. Google will now ask you to authorize the script. This is a normal safety check for any Apps Script project — click **Authorize access**, choose your Google account, and if you see a screen saying "Google hasn't verified this app", click **Advanced**, then **Go to (your project name) (unsafe)**. This warning appears because this is a personal/small project rather than a published Google product — it's expected and safe to proceed since you're the one who wrote/pasted the code.
-6. Click **Allow** on the permissions screen.
+6. Click **Allow** on the permissions screen. You'll see this asks for access to Google Drive as well as your spreadsheet — that's for the photo upload feature; it needs somewhere in your Drive to save catch photos.
 7. You'll now see a **Web app URL** — a link starting with `https://script.google.com/...`. Copy this link and save it somewhere (bookmark it, send it to your crew, etc.). This is the link everyone will use to open the app.
 
 ## Step 6 — Try it out
 
 1. Open the Web app URL from Step 5 in a new browser tab.
-2. You should see the Fishing Inventory app load, with tabs across the top: **Browse**, **Stats**, **Fishes Caught**, **Lookup**, **Requires Restock**, **Add Gear**, **Validations**.
+2. You should see the Fishing Inventory app load, with tabs across the top: **Browse**, **Stats**, **Fishes Caught**, **Lookup**, **Requires Restock**, **Add Gear**, **Settings**.
 3. Click **Add Gear**, fill in a test item, and click **Add Gear** to save it.
 4. Click the **Browse** tab and confirm your test item shows up.
+5. Optional, for catch photos: click the **Settings** tab, create a folder in [drive.google.com](https://drive.google.com) if you don't have one yet, then paste its share link (or just the folder ID) into the **Photo Storage** box and click **Save**. See "Setting up catch photos" below for more detail.
 
 If that works, you're fully set up! Share the Web app URL with the rest of your crew.
+
+---
+
+## Setting up catch photos (optional)
+
+Attaching a photo when logging a catch needs two things from you first: Drive permission granted to the script, and a Drive folder for it to save photos into.
+
+1. **Grant Drive permission, once.** The script doesn't ask for Drive access until it actually needs it, and — this is a real Apps Script quirk, not a mistake on your part — simply redeploying a new version doesn't reliably trigger that prompt on its own. So trigger it manually: in the **Apps Script editor**, use the function dropdown next to the **Run** button (top toolbar) to select **`testDriveAccess_`**, then click **Run**. This should pop up the familiar authorization screen — click **Review permissions**, choose your account, click **Advanced** → **Go to (your project name) (unsafe)** → **Allow**. (If it *doesn't* prompt and instead fails immediately, see the matching Troubleshooting entry below.)
+2. Go to [drive.google.com](https://drive.google.com), create a new folder for catch photos.
+3. Right-click it → **Share**, set the general access to **Anyone with the link** (Viewer is enough), then copy the link (or just note the long ID at the end of the folder's URL). This step matters: a file uploaded into a folder inherits that folder's own sharing, so the app never needs to (and doesn't) change sharing on individual photos — it's entirely down to how you've shared the folder itself.
+4. In the app, open the **Settings** tab, paste that link (or ID) into the **Photo Storage** box, and click **Save**.
+
+That's it — from then on, the "Record Fish" form has an optional photo field (with a "take photo" option on phones). A few things worth knowing:
+
+- Photos display inline in the app for your whole crew, without each person needing their own access to your Drive, **only if the folder itself is shared "Anyone with the link"** (step 3 above) — the app uploads into whatever folder you've configured but never touches its or its files' sharing settings.
+- **The app never deletes anything from Drive on its own** — replacing a catch's photo, removing a photo, or deleting the catch entirely only ever changes what the spreadsheet references. The old file, if any, stays exactly where it was; clean it up from Drive yourself if you want to.
+- Until a folder is set, the photo field will show an error if someone tries to use it — set the folder first, or skip this section entirely if you don't want catch photos.
 
 ---
 
@@ -125,21 +143,24 @@ Your existing Web app URL stays the same — you don't need to send your crew a 
 ## Troubleshooting
 
 - **"Script function not found" or a blank page when opening the link** — Double-check the four file names in Apps Script are exactly `Code`, `Index`, `Stylesheet`, `JavaScript` (Apps Script shows `Code.gs` for the script file, and just the name without `.html` for the HTML files).
-- **Owner/brand dropdowns are empty, or gear you expect to see is missing** — Owners, brands, types, fish types, and venues all fill in automatically over time as people use the Add Gear and Record Fish forms. If you're migrating a spreadsheet that already had data in it before the app's **Validations** tab existed, open that tab and click **🔄 Populate from existing data** once — it back-fills anything already in use but not yet recognized (gear/catches referencing an unrecognized value are hidden until it's added, same as a deleted value would be).
+- **Owner/brand dropdowns are empty, or gear you expect to see is missing** — Owners, brands, types, fish types, and venues all fill in automatically over time as people use the Add Gear and Record Fish forms. If you're migrating a spreadsheet that already had data in it before the app's **Settings** tab existed, open that tab and click **🔄 Populate from existing data** once — it back-fills anything already in use but not yet recognized (gear/catches referencing an unrecognized value are hidden until it's added, same as a deleted value would be).
 - **"Authorization required" errors when using the app** — Redeploy (see "Making changes later" above) and make sure "Execute as" is set to **Me**.
+- **"Set a photo folder on the Settings tab" error when attaching a photo** — Follow "Setting up catch photos" above; no photo folder has been configured yet.
+- **"You do not have permission to call DriveApp..." when saving the photo folder** — See step 1 of "Setting up catch photos" above: run `testDriveAccess_` from the Apps Script editor's Run button and accept the authorization prompt. Important: pick `testDriveAccess_` specifically, not `getPhotoFolderInfo` or `setPhotoFolder` — those two can return before ever touching Drive (e.g. if no folder is saved yet), so running them doesn't reliably trigger the prompt. If `testDriveAccess_` *also* fails with the same error and still doesn't prompt you for anything, your project has a manifest (`appsscript.json`) with a fixed permissions list that doesn't include Drive, and won't expand on its own — in the Apps Script editor, click the gear-icon **Project Settings**, check **"Show 'appsscript.json' manifest file in editor"**, open that file, and add `"https://www.googleapis.com/auth/drive"` to its `oauthScopes` array, then save and try running `testDriveAccess_` again.
+- **Catch photos don't show up for the rest of your crew** — The photo-storage folder itself needs to be shared **Anyone with the link** (see "Setting up catch photos" above) — the app uploads into whatever folder you've configured but never changes its or its files' sharing, so photos are only as visible as the folder is.
 - **Changes you made don't show up on the website** — You likely edited the files but forgot to create a **New version** of the deployment (see "Making changes later" above); simply saving the files in the Apps Script editor is not enough on its own.
 
 ---
 
 ## Features
 
-- **Browse** — filter all inventory items by owner, category, brand, or whether they've caught fish, with a text search.
+- **Browse** — filter all inventory items by owner, category, brand, or whether they've caught fish, with a text search. Category cards start collapsed and expand on click.
 - **Stats** — an owner × category quantity matrix, crowning who owns the most of each category, plus fun derived stats: "MVP bait", per-venue statistics (including each venue's top bait), and a per-angler breakdown (catches logged, average weight, personal best) for every angler individually. An **Owner** filter at the top narrows the entire tab down to one person's stats.
-- **Fishes Caught** — a log of every catch (date, fish type, weight, venue, angler) with the bait/gear combo used, filterable by fish type and venue (plus free-text search), and a "Record Fish" form to add new catches.
+- **Fishes Caught** — a log of every catch (date, fish type, weight, venue, angler, optional photo) with the bait/gear combo used, filterable by fish type and venue (plus free-text search). A **Record Fish** button logs a new catch from this tab directly (not just from an item's own row); every catch can also be **edited** (fix the wrong bait/gear, or any other field, after the fact) or **deleted**.
 - **Lookup** — two quick lookups: pick a venue to see its most-used bait/gear and most-caught fish, or pick a fish type to see its most-used bait/gear and top venues.
 - **Requires Restock** — a quick view of everything marked "Used Up" so it can be replaced.
-- **Add Gear** — add new inventory items per category, with autocomplete for known brands/owners/types; any new value you type is registered automatically, no manual setup required.
-- **Validations** — manage the Brands, Owners, Float Types, Fish Types, and Venues lists directly: add new values, rename existing ones, or delete them (with a confirmation prompt). Deleting a value is a **soft delete** — it only removes it from the list; any gear or catches that reference it are hidden from every other tab rather than deleted, and reappear automatically if you add the same value back.
+- **Add Gear** — add new inventory items per category, with autocomplete for known brands/owners/types; any new value you type is registered automatically, no manual setup required. Any item can also be **deleted permanently** (for gear you no longer own and don't want on the list at all — a real delete, not the "Used Up" toggle).
+- **Settings** — manage the Brands, Owners, Float Types, Fish Types, and Venues lists (add, rename, delete — see Notes for how delete works), plus **Photo Storage**: the Google Drive folder catch photos get uploaded to (see "Setting up catch photos" above).
 - Items can be toggled between **Available** and **Used Up**, and brand/type fields can be edited inline.
 
 ## Project structure
@@ -159,8 +180,8 @@ sheet/
 
 - **Dips / Sprays / Corn / Dough** tabs: columns `Brand | Name | Owner | Status (auto-added)`
 - **Floats** tab: columns `Brand | Name | Type | Owner | Status (auto-added)`
-- **Validations** tab: `Brands (A) | Owners (B) | Float Types (C) | Fish Types (D) | Venues (E)` — these columns feed the dropdown/autocomplete options in the Add Gear and Record Fish forms, and are managed from the app's **Validations** tab (values also register themselves automatically as they're used, and gear/catches referencing a value not in these lists are hidden until it's added — see Notes)
-- **Fishes Caught** tab: `Fish Type | Fish Weight | Where | Date | Owner | dips | floats | corn | sprays | dough`
+- **Validations** tab: `Brands (A) | Owners (B) | Float Types (C) | Fish Types (D) | Venues (E)` — these columns feed the dropdown/autocomplete options in the Add Gear and Record Fish forms, and are managed from the app's **Settings** tab (the sheet tab itself is still named "Validations" — only its label inside the app changed). Values also register themselves automatically as they're used, and gear/catches referencing a value not in these lists are hidden until it's added — see Notes.
+- **Fishes Caught** tab: `Fish Type | Weight (kg) | Venue | Date | Caught By | Dips | Sprays | Corn | Floats | Dough | Photo` — like the rest of this tab's columns, these are read/written by position (not by header text), so the header row is just a label; the app fills in column K (Photo) with a Drive file ID whenever a catch is logged with a photo, and leaves it blank otherwise.
 
 "Quantity" is simply the number of matching rows per owner/category — there's no dedicated quantity column. The `Status` column on each gear tab is created automatically (as the next free column) the first time an item is marked used up, so you don't need to add it yourself.
 
@@ -168,7 +189,9 @@ sheet/
 
 - The "used" columns on the Fishes Caught tab can hold multiple bait/gear names separated by commas or semicolons; blank, `0`, `-`, `none`, or `n/a` all mean "nothing used."
 - Matching a fish catch back to inventory items is by **Name only** (case-insensitive, trimmed) — if the same name exists under multiple owners in a category, a catch referencing that name will show against all of them, since the sheet doesn't record whose specific item was used.
-- Deleting a value on the **Validations** tab is a **soft delete**: it only removes that value from its list, never any gear/catch rows. Anything referencing the deleted value (e.g. an owner's gear, once that owner is deleted) is hidden from the app rather than removed, and reappears automatically the moment the same value is added back.
+- Deleting a value on the **Settings** tab is a **soft delete**: it only removes that value from its list, never any gear/catch rows. Anything referencing the deleted value (e.g. an owner's gear, once that owner is deleted) is hidden from the app rather than removed, and reappears automatically the moment the same value is added back.
+- Deleting a gear item (Add Gear's items) or a fish catch is a **real, permanent delete** of that sheet row — unlike deleting a Settings value, there's no "add it back and it reappears."
+- Fish-catch photos are never deleted from Drive by the app, for any reason (editing, removing, or deleting a catch) — only the spreadsheet's reference to a photo can change. See "Setting up catch photos" above.
 
 ## License
 

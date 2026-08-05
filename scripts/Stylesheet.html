@@ -292,6 +292,10 @@
     margin: 0 0 12px;
   }
 
+  .stats-compare-hint {
+    margin-top: 20px;
+  }
+
   .compare-wrap {
     background: var(--color-surface);
     border-radius: var(--radius-md);
@@ -707,10 +711,21 @@
     box-shadow:0 2px 8px rgba(0,0,0,.05);
 }
 
+.catch-card-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+    margin-bottom:10px;
+}
 .catch-title{
     font-size:18px;
     font-weight:600;
-    margin-bottom:10px;
+}
+.catch-card-actions{
+    display:flex;
+    gap:2px;
+    flex-shrink:0;
 }
 .col-actions{
     text-align:center;
@@ -732,16 +747,6 @@
     white-space: normal;
     line-height: 1.2;
   }
-  .item-table-wrap {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .item-table th,
-  .item-table td {
-    white-space: nowrap;
-  }
-
   .filter-bar {
     flex-direction: column;
   }
@@ -749,18 +754,60 @@
   .field {
     min-width: 100%;
   }
-}
-@media (max-width: 768px) {
-  .item-table td.item-name {
-    white-space: normal !important;
-    overflow-wrap: normal;
-    word-break: normal;
-    max-width: 90px;
+
+  /* Below this width a table with 7-8 columns doesn't fit without
+     horizontal scrolling, which is awkward to use on a phone. Instead,
+     each row becomes a stacked card: the table/thead/tbody/tr/td are all
+     switched to block display, and each td gets a label (from its
+     data-label attribute, set in buildCategoryCard()) via ::before,
+     positioned opposite its value with flex + space-between. */
+  .item-table thead {
+    display: none;
   }
-  .item-table th,
+
+  .item-table,
+  .item-table tbody,
+  .item-table tr,
   .item-table td {
-    padding: 8px;
-    font-size: 13px;
+    display: block;
+    width: 100%;
+  }
+
+  .item-table tr {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    margin-bottom: 10px;
+    padding: 4px 12px;
+  }
+
+  .item-table tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .item-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+    white-space: normal;
+    max-width: none;
+    font-size: 0.85rem;
+  }
+
+  .item-table td:last-child {
+    border-bottom: none;
+  }
+
+  .item-table td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
   }
 
   .icon-btn {
@@ -1013,6 +1060,10 @@
   margin-bottom: 16px;
 }
 
+.validation-seed-bar[hidden] {
+  display: none;
+}
+
 .validation-seed-bar .secondary-btn {
   flex-shrink: 0;
   background: var(--color-surface);
@@ -1031,17 +1082,71 @@
   gap: 16px;
 }
 
-.validation-group {
+.validation-group,
+.settings-section {
   background: var(--color-surface);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-card);
   padding: 16px;
 }
 
-.validation-group h4 {
+.settings-section {
+  margin-bottom: 16px;
+}
+
+.validation-group h4,
+.settings-section h4 {
   margin: 0 0 10px;
   font-size: 0.95rem;
   color: var(--color-primary-dark);
+}
+
+.photo-folder-status {
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+  margin-bottom: 12px;
+}
+
+.photo-folder-status a {
+  color: var(--color-primary-dark);
+  font-weight: 600;
+}
+
+.photo-folder-status.has-error {
+  color: var(--color-danger);
+}
+
+.fish-tab-record-btn {
+  align-self: flex-end;
+  flex: 0 0 auto;
+}
+
+.catch-photo-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: -6px;
+}
+
+.catch-photo-preview[hidden] {
+  display: none;
+}
+
+.catch-photo-preview img {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.catch-photo-thumb {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  border-radius: var(--radius-sm);
+  margin: 8px 0;
+  border: 1px solid var(--color-border);
 }
 
 .validation-add-form {
@@ -1098,6 +1203,10 @@
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
+}
+
+#photoFolderClearBtn {
+  margin-top: 8px;
 }
 
 .secondary-btn:hover {

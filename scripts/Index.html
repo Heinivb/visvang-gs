@@ -19,7 +19,7 @@
       <button class="tab-btn" data-tab="lookup" title="Look up bait/gear by venue or fish type">Lookup</button>
       <button class="tab-btn" data-tab="restock" title="Everything marked Used Up">Requires Restock</button>
       <button class="tab-btn" data-tab="add" title="Add a new piece of gear">Add Gear</button>
-      <button class="tab-btn" data-tab="validations" title="Manage owners, brands, types, fish types, and venues">Validations</button>
+      <button class="tab-btn" data-tab="validations" title="Manage owners, brands, types, venues, and photo storage">Settings</button>
     </nav>
 
     <main>
@@ -89,7 +89,7 @@
           </div>
         </div>
 
-        <p class="hint">Total quantity (item count) per owner, by category. 👑 marks whoever has the most of each.</p>
+        <p class="hint stats-compare-hint">Total quantity (item count) per owner, by category. 👑 marks whoever has the most of each.</p>
         <div id="compareTable" class="compare-wrap">
           <div class="loading-state">
             <div class="spinner"></div>
@@ -123,6 +123,7 @@
             <span>Search</span>
             <input type="search" id="fishFilterSearch" placeholder="Search fish, venue, angler"/>
           </label>
+          <button type="button" class="primary-btn fish-tab-record-btn" id="recordFishBtn" title="Log a new catch">🎣 Record Fish</button>
         </div>
 
         <div id="fishCatchList" class="results">
@@ -217,8 +218,30 @@
         </form>
       </section>
 
-      <!-- VALIDATIONS TAB -->
+      <!-- SETTINGS TAB (still id="tab-validations" internally — this tab started as just the
+           Validations lists, and has since grown to include general app settings too) -->
       <section id="tab-validations" class="tab-panel">
+        <div class="settings-section">
+          <h4>Photo Storage</h4>
+          <p class="hint">
+            Fish-catch photos are uploaded to a Google Drive folder you choose here. Create a folder in
+            Drive (or use an existing one), then paste its share link — or just its ID — below.
+          </p>
+          <div id="photoFolderStatus" class="photo-folder-status"></div>
+          <form id="photoFolderForm" class="validation-add-form">
+            <input type="text" id="photoFolderInput" placeholder="Paste a Drive folder link or ID…">
+            <button type="submit" class="primary-btn" title="Save this folder for catch photos">Save</button>
+          </form>
+          <button
+            type="button"
+            class="secondary-btn"
+            id="photoFolderClearBtn"
+            title="Stop using this folder — existing photos are left in Drive untouched"
+            hidden>
+            Clear Photo Folder
+          </button>
+        </div>
+
         <p class="hint">
           Manage the Brands, Owners, Float Types, Fish Types, and Venues offered throughout the app.
           Deleting a value only removes it from this list — any existing gear or catches that reference it
@@ -259,7 +282,7 @@
 
         <div class="modal-header">
 
-            <h3>Record Fish</h3>
+            <h3 id="recordCatchModalTitle">Record Fish</h3>
 
             <button
                 type="button"
@@ -335,9 +358,30 @@
 
                 <div id="catchBaitSelections"></div>
 
+                <label class="field" id="catchPhotoField">
+
+                    <span>Photo (optional)</span>
+
+                    <input
+                        type="file"
+                        id="catchPhotoInput"
+                        accept="image/*"
+                        capture="environment">
+
+                </label>
+
+                <div id="catchPhotoPreview" class="catch-photo-preview" hidden>
+
+                    <img id="catchPhotoPreviewImg" alt="Selected photo preview">
+
+                    <button type="button" class="secondary-btn" id="catchPhotoRemoveBtn" title="Remove this photo">Remove Photo</button>
+
+                </div>
+
                 <button
                     type="submit"
                     class="primary-btn"
+                    id="recordCatchSubmitBtn"
                     title="Save this catch">
 
                     Save Catch

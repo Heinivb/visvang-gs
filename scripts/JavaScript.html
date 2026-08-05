@@ -6,6 +6,10 @@
   var fishIndex = null;    // category -> { itemNameLower: [catchEntry, ...] }
   var fishCatches = [];
   var currentCatchItem = null;
+  var currentEditingCatchRowIndex = null; // set while the Record Catch modal is editing an existing catch, instead of adding a new one
+  var currentEditingCatchPhotoFileId = ''; // that catch's existing photo, if any — carried through so an untouched photo isn't lost on save
+  var photoFolderConfigured = false; // whether Settings has a photo-storage folder set — controls whether the photo field even appears
+  var catchPhotoMarkedForRemoval = false; // set by the "Remove Photo" button; cleared as soon as a photo is shown again (new selection, or an existing one being previewed)
   document.addEventListener('DOMContentLoaded', function () {
     setupTabs();
     setupBrowseFilters();
@@ -18,6 +22,8 @@
     setupInfoModal();
     setupConfirmModal();
     setupValidationsTab();
+    setupPhotoFolderSettings();
+    renderPhotoFolderStatus();
     loadEverything();
   });
 
@@ -209,16 +215,17 @@
     var index = {};
     CATEGORIES.forEach(function (cat) { index[cat] = {}; });
 
-    catches.forEach(function (c) {
+    catches.forEach(function (rawCatch) {
       var combo = {};
-      CATEGORIES.forEach(function (cat) { combo[cat] = c[cat.toLowerCase()] || []; });
+      CATEGORIES.forEach(function (cat) { combo[cat] = rawCatch[cat.toLowerCase()] || []; });
 
       var catchEntry = {
-        fishType: c.fishType,
-        weight: c.weight,
-        where: c.where,
-        date: c.date,
-        owner: c.owner,
+        fishType: rawCatch.fishType,
+        weight: rawCatch.weight,
+        where: rawCatch.where,
+        date: rawCatch.date,
+        owner: rawCatch.owner,
+        photoUrl: rawCatch.photoUrl,
         combo: combo
       };
 
@@ -373,6 +380,10 @@
     document.getElementById('fishFilterType').addEventListener('change', renderFishTab);
     document.getElementById('fishFilterVenue').addEventListener('change', renderFishTab);
     document.getElementById('fishFilterSearch').addEventListener('input', renderFishTab);
+    document.getElementById('recordFishBtn').addEventListener('click', function () {
+      openRecordCatchModal();
+    });
+    document.getElementById('fishCatchList').addEventListener('click', handleFishCatchListClick);
   }
 
   /**
@@ -551,7 +562,8 @@
       '<th>Owner</th>' +
       '<th class="col-actions">Fish</th>' +
       '<th class="col-actions">Record</th>' +
-      '<th class="col-actions">Status</th>';
+      '<th class="col-actions">Status</th>' +
+      '<th class="col-actions">Delete</th>';
 
     var catIndex = (fishIndex && fishIndex[category]) || {};
 
@@ -611,14 +623,23 @@
         (it.usedUp ? 'Used Up' : 'Available') +
         '</button>';
 
+      var deleteBtn =
+        '<button type="button" class="icon-btn"' +
+        ' data-action="delete-item"' +
+        ' data-category="' + category + '"' +
+        ' data-row="' + it.rowIndex + '"' +
+        ' data-name="' + escapeHtml(it.name) + '"' +
+        ' title="Delete this item permanently">🗑️</button>';
+
       return '<tr>' +
-        '<td class="item-name">' + brandCell + '</td>' +
-        '<td class="item-name" title="' + escapeHtml(it.name) + '">' + escapeHtml(it.name) + '</td>' +
-        (showType ? '<td>' + typeCell + '</td>' : '') +
-        '<td title="' + escapeHtml(it.owner) + '">' + escapeHtml(it.owner) + '</td>' +
-        '<td>' + fishBtn + '</td>' +
-        '<td title="Record a catch">' + recordBtn + '</td>' +
-        '<td>' + statusBtn + '</td>' +
+        '<td class="item-name" data-label="Brand">' + brandCell + '</td>' +
+        '<td class="item-name" data-label="Name" title="' + escapeHtml(it.name) + '">' + escapeHtml(it.name) + '</td>' +
+        (showType ? '<td data-label="Type">' + typeCell + '</td>' : '') +
+        '<td data-label="Owner" title="' + escapeHtml(it.owner) + '">' + escapeHtml(it.owner) + '</td>' +
+        '<td data-label="Fish">' + fishBtn + '</td>' +
+        '<td data-label="Record" title="Record a catch">' + recordBtn + '</td>' +
+        '<td data-label="Status">' + statusBtn + '</td>' +
+        '<td data-label="Delete">' + deleteBtn + '</td>' +
         '</tr>';
 
     }).join('');
@@ -695,7 +716,40 @@
       var rowIndex = Number(statusBtn.dataset.row);
       var newUsedUp = statusBtn.dataset.usedUp !== 'true'; // flip current state
       toggleItemStatus(category, rowIndex, newUsedUp, statusBtn);
+      return;
     }
+    var deleteBtn = e.target.closest('[data-action="delete-item"]');
+    if (deleteBtn) {
+      confirmDeleteItem(deleteBtn.dataset.category, Number(deleteBtn.dataset.row), deleteBtn.dataset.name, deleteBtn);
+    }
+  }
+
+  /**
+   * Asks for confirmation before permanently deleting a gear item, then
+   * sends the delete to the server and does a full reload. Unlike
+   * deleting a Validations value, this is a real, permanent delete of the
+   * sheet row — there's no "add it back and it reappears" undo.
+   * @param {string} category - One of CATEGORIES.
+   * @param {number} rowIndex - The sheet row number (as returned by getAllData).
+   * @param {string} name - Item name, for the confirmation message.
+   * @param {HTMLButtonElement} [btnElement] - The delete button clicked, for the busy spinner.
+   * @return {void}
+   */
+  function confirmDeleteItem(category, rowIndex, name, btnElement) {
+    showConfirmModal(
+      'Delete "' + name + '" from ' + category + '? This removes it from the spreadsheet permanently — it will not come back on its own.',
+      function () {
+        if (btnElement) setButtonBusy(btnElement);
+
+        google.script.run
+          .withSuccessHandler(loadEverything)
+          .withFailureHandler(function (err) {
+            if (btnElement) clearButtonBusy(btnElement);
+            showInfoModal(err.message || String(err), 'Could not delete item');
+          })
+          .deleteGearItem(category, rowIndex);
+      }
+    );
   }
 
   /**
@@ -775,11 +829,11 @@
     var venueFilter = (document.getElementById('fishFilterVenue') || {}).value || '__all__';
     var search = ((document.getElementById('fishFilterSearch') || {}).value || '').trim().toLowerCase();
 
-    var filtered = fishCatches.filter(function (c) {
-      if (typeFilter !== '__all__' && (c.fishType || '') !== typeFilter) return false;
-      if (venueFilter !== '__all__' && (c.where || '') !== venueFilter) return false;
+    var filtered = fishCatches.filter(function (catchEntry) {
+      if (typeFilter !== '__all__' && (catchEntry.fishType || '') !== typeFilter) return false;
+      if (venueFilter !== '__all__' && (catchEntry.where || '') !== venueFilter) return false;
       if (search) {
-        var haystack = [c.fishType, c.where, c.owner].join(' ').toLowerCase();
+        var haystack = [catchEntry.fishType, catchEntry.where, catchEntry.owner].join(' ').toLowerCase();
         if (haystack.indexOf(search) === -1) return false;
       }
       return true;
@@ -791,22 +845,36 @@
     }
 
     container.innerHTML =
-      filtered.map(function (c) {
+      filtered.map(function (catchEntry) {
+
+        var photoHtml = catchEntry.photoUrl
+          ? `<a href="${escapeHtml(catchEntry.photoUrl)}" target="_blank" rel="noopener">
+               <img class="catch-photo-thumb" src="${escapeHtml(catchEntry.photoUrl)}" alt="Photo of the ${escapeHtml(catchEntry.fishType)} catch">
+             </a>`
+          : '';
 
         return `
         <div class="catch-card">
 
-            <div class="catch-title">
-                ${escapeHtml(c.fishType)}
+            <div class="catch-card-head">
+                <div class="catch-title">
+                    ${escapeHtml(catchEntry.fishType)}
+                </div>
+                <span class="catch-card-actions">
+                    <button type="button" class="icon-btn" data-action="edit-catch" data-row="${catchEntry.rowIndex}" title="Edit this catch">✏️</button>
+                    <button type="button" class="icon-btn" data-action="delete-catch" data-row="${catchEntry.rowIndex}" title="Delete this catch">🗑️</button>
+                </span>
             </div>
 
-            <div><strong>Weight:</strong> ${escapeHtml(c.weight)} kg</div>
+            <div><strong>Weight:</strong> ${escapeHtml(catchEntry.weight)} kg</div>
 
-            <div><strong>Venue:</strong> ${escapeHtml(c.where)}</div>
+            <div><strong>Venue:</strong> ${escapeHtml(catchEntry.where)}</div>
 
-            <div><strong>Caught By:</strong> ${escapeHtml(c.owner)}</div>
+            <div><strong>Caught By:</strong> ${escapeHtml(catchEntry.owner)}</div>
 
-            <div><strong>Date:</strong> ${new Date(c.date).toLocaleDateString()}</div>
+            <div><strong>Date:</strong> ${new Date(catchEntry.date).toLocaleDateString()}</div>
+
+            ${photoHtml}
 
         </div>
       `;
@@ -814,6 +882,56 @@
       }).join('');
 
   }
+
+  /**
+   * Delegated click handler for the Fishes Caught tab's catch list: routes
+   * clicks on a catch card's edit/delete controls to their actions.
+   * @param {MouseEvent} e - Click event within #fishCatchList.
+   * @return {void}
+   */
+  function handleFishCatchListClick(e) {
+    var editBtn = e.target.closest('[data-action="edit-catch"]');
+    if (editBtn) {
+      openEditCatchModal(Number(editBtn.dataset.row));
+      return;
+    }
+
+    var deleteBtn = e.target.closest('[data-action="delete-catch"]');
+    if (deleteBtn) {
+      confirmDeleteCatch(Number(deleteBtn.dataset.row), deleteBtn);
+    }
+  }
+
+  /**
+   * Asks for confirmation before permanently deleting a fish catch, then
+   * sends the delete to the server and does a full reload. This never
+   * touches Drive — any attached photo is left exactly where it is.
+   * @param {number} rowIndex - The catch's sheet row number (as returned by getFishCatches).
+   * @param {HTMLButtonElement} [btnElement] - The delete button clicked, for the busy spinner.
+   * @return {void}
+   */
+  function confirmDeleteCatch(rowIndex, btnElement) {
+    var matchingCatch = (Array.isArray(fishCatches) ? fishCatches : [])
+      .find(function (fishCatch) { return fishCatch.rowIndex === rowIndex; });
+    var fishLabel = matchingCatch ? (matchingCatch.fishType || 'this catch') : 'this catch';
+
+    showConfirmModal(
+      'Delete this ' + fishLabel + ' catch? This removes it from the spreadsheet permanently. ' +
+      '(A photo attached to it, if any, is left in Drive untouched.)',
+      function () {
+        if (btnElement) setButtonBusy(btnElement);
+
+        google.script.run
+          .withSuccessHandler(loadEverything)
+          .withFailureHandler(function (err) {
+            if (btnElement) clearButtonBusy(btnElement);
+            showInfoModal(err.message || String(err), 'Could not delete catch');
+          })
+          .deleteFishCatch(rowIndex);
+      }
+    );
+  }
+
   // ---------- FISH CATCH MODAL ----------
 
   /**
@@ -933,27 +1051,99 @@
   }
 
   /**
-   * Opens the Record Catch modal pre-filled with today's date, the venue
-   * dropdown, and bait checkboxes with the triggering item pre-checked.
+   * Opens the Record Catch modal, in "add" mode, pre-filled with today's
+   * date, the venue dropdown, and bait checkboxes with the triggering
+   * item pre-checked.
    * @param {string} category - One of CATEGORIES, for the item that triggered this.
    * @param {string} itemName - Name of the item that triggered this.
    * @return {void}
    */
   function openRecordCatchModal(category,itemName){
 
+    currentEditingCatchRowIndex = null;
     currentCatchItem={
         category:category,
         itemName:itemName
     };
+
+    document.getElementById("recordCatchModalTitle").textContent = "Record Fish";
+    document.getElementById("recordCatchSubmitBtn").textContent = "Save Catch";
 
     document.getElementById("recordCatchForm").reset();
 
     document.getElementById("catchDate").value=
         new Date().toISOString().substring(0,10);
 
+    document.getElementById("otherVenueField").hidden = true;
+
     buildVenueDropdown();
 
-    buildBaitSelections(category,itemName);
+    buildBaitSelections(preselectedBaitFromItem_(category, itemName));
+
+    currentEditingCatchPhotoFileId = '';
+    resetCatchPhotoPreview();
+    updateCatchPhotoFieldVisibility();
+
+    document
+        .getElementById("recordCatchModal")
+        .hidden=false;
+
+}
+/**
+ * Opens the Record Catch modal, in "edit" mode, pre-filled with an
+ * existing catch's fields, bait/gear selections, and photo (if any), so
+ * the wrong bait/gear (or any other field) can be fixed after the fact.
+ * @param {number} rowIndex - The catch's sheet row number (as returned by getFishCatches).
+ * @return {void}
+ */
+function openEditCatchModal(rowIndex){
+
+    var existingCatch = (Array.isArray(fishCatches) ? fishCatches : [])
+        .find(function (fishCatch) { return fishCatch.rowIndex === rowIndex; });
+
+    if (!existingCatch) {
+        showInfoModal('That catch could not be found — try refreshing.', 'Not found');
+        return;
+    }
+
+    currentEditingCatchRowIndex = rowIndex;
+    currentCatchItem = null;
+
+    document.getElementById("recordCatchModalTitle").textContent = "Edit Catch";
+    document.getElementById("recordCatchSubmitBtn").textContent = "Save Changes";
+
+    document.getElementById("recordCatchForm").reset();
+
+    document.getElementById("catchDate").value = existingCatch.date || new Date().toISOString().substring(0,10);
+    document.getElementById("catchFishType").value = existingCatch.fishType || '';
+    document.getElementById("catchWeight").value = existingCatch.weight || '';
+    document.getElementById("catchOwner").value = existingCatch.owner || '';
+
+    buildVenueDropdown();
+
+    var venueSelect = document.getElementById("catchVenue");
+    var hasMatchingVenue = Array.prototype.some.call(venueSelect.options, function (venueOption) {
+        return venueOption.value === existingCatch.where;
+    });
+
+    if (hasMatchingVenue) {
+        venueSelect.value = existingCatch.where;
+        document.getElementById("otherVenueField").hidden = true;
+    } else {
+        venueSelect.value = "__other__";
+        document.getElementById("otherVenueField").hidden = false;
+        document.getElementById("otherVenue").value = existingCatch.where || '';
+    }
+
+    buildBaitSelections(preselectedBaitFromCatch_(existingCatch));
+
+    currentEditingCatchPhotoFileId = existingCatch.photoFileId || '';
+    if (currentEditingCatchPhotoFileId) {
+        showCatchPhotoPreview(existingCatch.photoUrl);
+    } else {
+        resetCatchPhotoPreview();
+    }
+    updateCatchPhotoFieldVisibility();
 
     document
         .getElementById("recordCatchModal")
@@ -965,6 +1155,10 @@
  * @return {void}
  */
 function closeRecordCatchModal(){
+
+    currentEditingCatchRowIndex = null;
+    currentEditingCatchPhotoFileId = '';
+    resetCatchPhotoPreview();
 
     document
         .getElementById("recordCatchModal")
@@ -1010,13 +1204,50 @@ function buildVenueDropdown(){
  * @param {string} item - Name of the item that triggered this.
  * @return {void}
  */
-function buildBaitSelections(category,item){
+/**
+ * Builds a { category -> [lowercased name, ...] } preselection map for a
+ * single triggering item (the "record catch" 📝 button on one item row).
+ * @param {string} category - Category of the triggering item.
+ * @param {string} itemName - Name of the triggering item.
+ * @return {Object} Preselection map for buildBaitSelections().
+ */
+function preselectedBaitFromItem_(category, itemName) {
+    var preselected = {};
+    CATEGORIES.forEach(function (cat) { preselected[cat] = []; });
+
+    var key = (itemName || '').trim().toLowerCase();
+    if (category && key) preselected[category] = [key];
+
+    return preselected;
+}
+
+/**
+ * Builds a { category -> [lowercased name, ...] } preselection map from
+ * an existing catch's recorded bait/gear combo, for editing.
+ * @param {Object} c - A catch entry (from fishCatches).
+ * @return {Object} Preselection map for buildBaitSelections().
+ */
+function preselectedBaitFromCatch_(c) {
+    var preselected = {};
+    CATEGORIES.forEach(function (cat) {
+        preselected[cat] = (c[cat.toLowerCase()] || []).map(function (name) {
+            return String(name || '').trim().toLowerCase();
+        });
+    });
+    return preselected;
+}
+
+/**
+ * Populates the Record Catch modal's bait checkboxes, grouped by
+ * category, pre-checking whichever items are named in `preselected`.
+ * @param {Object} preselected - { category -> [lowercased name, ...] }, from preselectedBaitFromItem_/preselectedBaitFromCatch_.
+ * @return {void}
+ */
+function buildBaitSelections(preselected){
 
     var container=document.getElementById("catchBaitSelections");
 
     container.innerHTML="";
-
-    var itemKey = (item || '').trim().toLowerCase();
 
     CATEGORIES.forEach(function(cat){
 
@@ -1025,6 +1256,8 @@ function buildBaitSelections(category,item){
         div.className="bait-group";
 
         div.innerHTML="<h4>"+cat+"</h4>";
+
+        var preselectedNames = preselected[cat] || [];
 
         // Same-named items owned by different people are the same "bait"
         // from a catch-logging perspective, so only one checkbox per
@@ -1043,9 +1276,7 @@ function buildBaitSelections(category,item){
             if (seenNames.has(nameKey)) return;
             seenNames.add(nameKey);
 
-            var checked=
-                cat===category &&
-                nameKey === itemKey;
+            var checked = preselectedNames.indexOf(nameKey) !== -1;
 
             div.innerHTML+=
                 '<label>'+
@@ -1100,10 +1331,13 @@ function saveCatch(e){
         sprays:[],
         corn:[],
         floats:[],
-        dough:[]
+        dough:[],
+
+        existingPhotoFileId: currentEditingCatchPhotoFileId,
+        removePhoto: catchPhotoMarkedForRemoval
 
     };
-    var map = {
+    var categoryToField = {
     Dips: "dips",
     Sprays: "sprays",
     Corn: "corn",
@@ -1115,9 +1349,9 @@ function saveCatch(e){
 
     document
         .querySelectorAll(".baitCheck:checked")
-        .forEach(function(c){
-            var field = map[c.dataset.category];
-            var name = decodeURIComponent(c.value);
+        .forEach(function(checkbox){
+            var field = categoryToField[checkbox.dataset.category];
+            var name = decodeURIComponent(checkbox.value);
             var key = name.toLowerCase();
 
             if (!seenPerField[field]) seenPerField[field] = new Set();
@@ -1127,21 +1361,101 @@ function saveCatch(e){
             data[field].push(name);
         });
 
-    google.script.run
-        .withSuccessHandler(function(){
+    var isEditing = currentEditingCatchRowIndex !== null;
+    var selectedPhoto = document.getElementById("catchPhotoInput").files[0];
 
-            clearButtonBusy(submitBtn);
-            closeRecordCatchModal();
+    var photoReady = selectedPhoto
+        ? downscaleImageToBase64_(selectedPhoto, 1600, 0.8)
+        : Promise.resolve(null);
 
-            loadEverything();
+    photoReady
+        .then(function (photo) {
+
+            if (photo) {
+                data.photoBase64 = photo.base64;
+                data.photoMimeType = photo.mimeType;
+                data.photoName = selectedPhoto.name || 'catch.jpg';
+            }
+
+            var request = google.script.run
+                .withSuccessHandler(function(){
+
+                    clearButtonBusy(submitBtn);
+                    closeRecordCatchModal();
+
+                    loadEverything();
+
+                })
+                .withFailureHandler(function (err) {
+                    clearButtonBusy(submitBtn);
+                    showInfoModal(err.message || String(err), isEditing ? 'Could not save changes' : 'Could not save catch');
+                });
+
+            if (isEditing) {
+                request.updateFishCatch(currentEditingCatchRowIndex, data);
+            } else {
+                request.saveFishCatch(data);
+            }
 
         })
-        .withFailureHandler(function (err) {
+        .catch(function (err) {
             clearButtonBusy(submitBtn);
-            showInfoModal(err.message || String(err), 'Could not save catch');
-        })
-        .saveFishCatch(data);
+            showInfoModal(err.message || String(err), 'Could not process photo');
+        });
 
+}
+/**
+ * Reads an image file, scales it down (preserving aspect ratio) so its
+ * longest side is at most maxDimension, and re-encodes it as a JPEG data
+ * URL — this keeps phone-camera photos (often several MB) well within
+ * what google.script.run can comfortably send in one call.
+ * @param {File} file - The selected image file.
+ * @param {number} maxDimension - Maximum width/height, in pixels.
+ * @param {number} quality - JPEG quality, 0-1.
+ * @return {Promise<{base64: string, mimeType: string}>}
+ */
+function downscaleImageToBase64_(file, maxDimension, quality) {
+    return new Promise(function (resolve, reject) {
+
+        var reader = new FileReader();
+
+        reader.onerror = function () {
+            reject(new Error('Could not read the selected photo.'));
+        };
+
+        reader.onload = function () {
+
+            var image = new Image();
+
+            image.onerror = function () {
+                reject(new Error('Could not read the selected photo.'));
+            };
+
+            image.onload = function () {
+
+                var scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+                var scaledWidth = Math.round(image.width * scale);
+                var scaledHeight = Math.round(image.height * scale);
+
+                var canvas = document.createElement('canvas');
+                canvas.width = scaledWidth;
+                canvas.height = scaledHeight;
+                canvas.getContext('2d').drawImage(image, 0, 0, scaledWidth, scaledHeight);
+
+                resolve({
+                    base64: canvas.toDataURL('image/jpeg', quality).split(',')[1],
+                    mimeType: 'image/jpeg'
+                });
+
+            };
+
+            image.src = reader.result;
+
+        };
+
+        reader.readAsDataURL(file);
+
+    });
 }
 /**
  * Wires up the Record Catch modal's close button, backdrop click, form
@@ -1178,6 +1492,59 @@ function setupRecordCatchModal() {
 
       });
 
+    document
+      .getElementById("catchPhotoInput")
+      .addEventListener("change", function () {
+
+        var selectedFile = this.files && this.files[0];
+        if (!selectedFile) return;
+
+        showCatchPhotoPreview(URL.createObjectURL(selectedFile));
+
+      });
+
+    document
+      .getElementById("catchPhotoRemoveBtn")
+      .addEventListener("click", handleCatchPhotoRemoveClick);
+
+  }
+
+  /**
+   * Hides and clears the Record Catch modal's photo preview area, and the
+   * file input and "remove photo" checkbox alongside it.
+   * @return {void}
+   */
+  function resetCatchPhotoPreview() {
+    document.getElementById("catchPhotoPreview").hidden = true;
+    document.getElementById("catchPhotoPreviewImg").src = "";
+    document.getElementById("catchPhotoInput").value = "";
+    catchPhotoMarkedForRemoval = false;
+  }
+
+  /**
+   * Shows the Record Catch modal's photo preview area with the given
+   * image URL (either a newly selected file's local preview, or an
+   * existing catch's stored photo).
+   * @param {string} url - Image URL to preview.
+   * @return {void}
+   */
+  function showCatchPhotoPreview(url) {
+    document.getElementById("catchPhotoPreviewImg").src = url;
+    document.getElementById("catchPhotoPreview").hidden = false;
+    catchPhotoMarkedForRemoval = false;
+  }
+
+  /**
+   * Click handler for the photo preview's "Remove Photo" button: clears
+   * whatever's selected/previewed and marks the photo for removal on
+   * save (existingPhotoFileId, if any, gets cleared server-side).
+   * @return {void}
+   */
+  function handleCatchPhotoRemoveClick() {
+    catchPhotoMarkedForRemoval = true;
+    document.getElementById("catchPhotoInput").value = "";
+    document.getElementById("catchPhotoPreviewImg").src = "";
+    document.getElementById("catchPhotoPreview").hidden = true;
   }
 
   /**
@@ -1212,28 +1579,34 @@ function setupRecordCatchModal() {
       return '<div class="empty-state">No catches on record for this item.</div>';
     }
 
-    return catches.map(function (c) {
-      var weightText = (c.weight !== '' && c.weight !== null && c.weight !== undefined)
-        ? c.weight + ' kg' : '';
+    return catches.map(function (catchEntry) {
+      var weightText = (catchEntry.weight !== '' && catchEntry.weight !== null && catchEntry.weight !== undefined)
+        ? catchEntry.weight + ' kg' : '';
       var comboLines = CATEGORIES.map(function (cat) {
-        if (!c.combo[cat] || !c.combo[cat].length) return '';
-        var isCurrent = cat === category && c.combo[cat].some(function (n) {
-          return n.toLowerCase() === (itemName || '').toLowerCase();
+        if (!catchEntry.combo[cat] || !catchEntry.combo[cat].length) return '';
+        var isCurrent = cat === category && catchEntry.combo[cat].some(function (name) {
+          return name.toLowerCase() === (itemName || '').toLowerCase();
         });
         return '<div class="combo-row' + (isCurrent ? ' is-current' : '') + '">' +
-          '<strong>' + escapeHtml(cat) + ':</strong> ' + escapeHtml(c.combo[cat].join(', ')) +
+          '<strong>' + escapeHtml(cat) + ':</strong> ' + escapeHtml(catchEntry.combo[cat].join(', ')) +
           '</div>';
       }).join('');
 
+      var photoHtml = catchEntry.photoUrl
+        ? '<a href="' + escapeHtml(catchEntry.photoUrl) + '" target="_blank" rel="noopener">' +
+          '<img class="catch-photo-thumb" src="' + escapeHtml(catchEntry.photoUrl) + '" alt="Catch photo"></a>'
+        : '';
+
       return '<div class="catch-entry">' +
         '<div class="catch-entry-head">' +
-        '<span>' + escapeHtml(c.fishType || 'Unknown fish') + '</span>' +
+        '<span>' + escapeHtml(catchEntry.fishType || 'Unknown fish') + '</span>' +
         (weightText ? '<span class="catch-entry-weight">' + escapeHtml(weightText) + '</span>' : '') +
         '</div>' +
-        '<div><strong>Location:</strong> ' + escapeHtml(c.where || '-') + '</div>' +
-        '<div><strong>Date:</strong> ' + escapeHtml(c.date || '-') + '</div>' +
-        '<div><strong>Caught By:</strong> ' + escapeHtml(c.owner || '-') + '</div>' +
+        '<div><strong>Location:</strong> ' + escapeHtml(catchEntry.where || '-') + '</div>' +
+        '<div><strong>Date:</strong> ' + escapeHtml(catchEntry.date || '-') + '</div>' +
+        '<div><strong>Caught By:</strong> ' + escapeHtml(catchEntry.owner || '-') + '</div>' +
         comboLines +
+        photoHtml +
         '</div>';
     }).join('');
   }
@@ -1529,32 +1902,32 @@ function setupRecordCatchModal() {
       });
     }
 
-    var headRow = '<th>Owner</th>' + summary.categories.map(function (c) {
-      return '<th>' + escapeHtml(c) + '</th>';
+    var headRow = '<th>Owner</th>' + summary.categories.map(function (cat) {
+      return '<th>' + escapeHtml(cat) + '</th>';
     }).join('') + '<th>Total</th>';
 
     var bodyRows = summary.owners.map(function (owner) {
       var cells = summary.categories.map(function (cat) {
-        var c = (summary.counts[owner] && summary.counts[owner][cat]) || 0;
+        var count = (summary.counts[owner] && summary.counts[owner][cat]) || 0;
         var isLeader = leaders[cat].has(owner);
-        return '<td class="' + (isLeader ? 'cell-leader' : '') + '">' +
-          c + (isLeader ? ' <span class="crown" title="Most ' + escapeHtml(cat) + '">&#9819;</span>' : '') +
+        return '<td class="' + (isLeader ? 'cell-leader' : '') + '" data-label="' + escapeHtml(cat) + '">' +
+          count + (isLeader ? ' <span class="crown" title="Most ' + escapeHtml(cat) + '">&#9819;</span>' : '') +
           '</td>';
       }).join('');
       var total = summary.totals[owner] || 0;
       var isTotalLeader = totalLeaders.has(owner);
-      return '<tr><td>' + escapeHtml(owner) + '</td>' + cells +
-        '<td class="' + (isTotalLeader ? 'cell-leader' : '') + '">' + total +
+      return '<tr><td data-label="Owner">' + escapeHtml(owner) + '</td>' + cells +
+        '<td class="' + (isTotalLeader ? 'cell-leader' : '') + '" data-label="Total">' + total +
         (isTotalLeader ? ' <span class="crown" title="Most overall">&#9819;</span>' : '') +
         '</td></tr>';
     }).join('');
 
-    var totalsRow = '<td>Category total</td>' + summary.categories.map(function (cat) {
+    var totalsRow = '<td data-label="Owner">Category total</td>' + summary.categories.map(function (cat) {
       var total = summary.owners.reduce(function (sum, owner) {
         return sum + ((summary.counts[owner] && summary.counts[owner][cat]) || 0);
       }, 0);
-      return '<td>' + total + '</td>';
-    }).join('') + '<td>' + Object.values(summary.totals).reduce(function (a, b) { return a + b; }, 0) + '</td>';
+      return '<td data-label="' + escapeHtml(cat) + '">' + total + '</td>';
+    }).join('') + '<td data-label="Total">' + Object.values(summary.totals).reduce(function (a, b) { return a + b; }, 0) + '</td>';
 
     container.innerHTML = '<table class="compare-table">' +
       '<thead><tr>' + headRow + '</tr></thead>' +
@@ -2040,6 +2413,129 @@ function setupRecordCatchModal() {
       });
 
     }
+  }
+
+  // ---------- SETTINGS TAB: PHOTO STORAGE ----------
+
+  /**
+   * Wires up the Settings tab's photo folder form.
+   * @return {void}
+   */
+  function setupPhotoFolderSettings() {
+    document.getElementById('photoFolderForm').addEventListener('submit', handlePhotoFolderSubmit);
+    document.getElementById('photoFolderClearBtn').addEventListener('click', handlePhotoFolderClearClick);
+  }
+
+  /**
+   * Click handler for the "Clear Photo Folder" button: confirms, then
+   * clears the saved folder setting. Existing photos already in Drive are
+   * never touched — this only stops the app from uploading new ones
+   * there and showing that folder as configured.
+   * @return {void}
+   */
+  function handlePhotoFolderClearClick() {
+    var btn = document.getElementById('photoFolderClearBtn');
+
+    showConfirmModal(
+      'Stop using this folder for catch photos? Photos already uploaded stay exactly where they are in Drive — ' +
+      'this just clears the setting, so new catches won\'t have anywhere to save a photo until you set a folder again.',
+      function () {
+        setButtonBusy(btn);
+
+        google.script.run
+          .withSuccessHandler(function () {
+            clearButtonBusy(btn);
+            renderPhotoFolderStatus();
+          })
+          .withFailureHandler(function (err) {
+            clearButtonBusy(btn);
+            showInfoModal(err.message || String(err), 'Could not clear photo folder');
+          })
+          .setPhotoFolder('');
+      }
+    );
+  }
+
+  /**
+   * Submit handler for the photo folder form: saves the pasted Drive
+   * folder link/ID as the destination for future catch photos.
+   * @param {SubmitEvent} e - Form submit event.
+   * @return {void}
+   */
+  function handlePhotoFolderSubmit(e) {
+    e.preventDefault();
+
+    var input = document.getElementById('photoFolderInput');
+    var submitBtn = e.target.querySelector('button[type="submit"]');
+    setButtonBusy(submitBtn);
+
+    google.script.run
+      .withSuccessHandler(function () {
+        clearButtonBusy(submitBtn);
+        input.value = '';
+        renderPhotoFolderStatus();
+      })
+      .withFailureHandler(function (err) {
+        clearButtonBusy(submitBtn);
+        showInfoModal(err.message || String(err), 'Could not save photo folder');
+      })
+      .setPhotoFolder(input.value.trim());
+  }
+
+  /**
+   * Fetches and displays the currently configured photo-storage folder
+   * (or a prompt to set one) on the Settings tab.
+   * @return {void}
+   */
+  function renderPhotoFolderStatus() {
+    var status = document.getElementById('photoFolderStatus');
+    if (!status) return;
+
+    status.textContent = 'Checking…';
+    status.classList.remove('has-error');
+
+    google.script.run
+      .withSuccessHandler(function (info) {
+        photoFolderConfigured = !!(info.folderId && !info.error);
+        updateCatchPhotoFieldVisibility();
+        // Shown whenever there's a saved folder id, even a broken one
+        // (info.error), so a stale/inaccessible setting can be cleared.
+        document.getElementById('photoFolderClearBtn').hidden = !info.folderId;
+
+        if (info.error) {
+          status.classList.add('has-error');
+          status.textContent = info.error;
+          return;
+        }
+
+        if (!info.folderId) {
+          status.textContent = 'No folder set yet — photos can\'t be attached to catches until one is.';
+          return;
+        }
+
+        status.innerHTML = 'Photos are saved to <a href="' + escapeHtml(info.folderUrl) +
+          '" target="_blank" rel="noopener">' + escapeHtml(info.folderName) + '</a>.';
+      })
+      .withFailureHandler(function (err) {
+        photoFolderConfigured = false;
+        updateCatchPhotoFieldVisibility();
+        document.getElementById('photoFolderClearBtn').hidden = true;
+        status.classList.add('has-error');
+        status.textContent = err.message || String(err);
+      })
+      .getPhotoFolderInfo();
+  }
+
+  /**
+   * Shows or hides the Record Catch modal's photo field: there's no point
+   * offering it (and it would just error on save) until a photo-storage
+   * folder is configured on the Settings tab.
+   * @return {void}
+   */
+  function updateCatchPhotoFieldVisibility() {
+    var photoField = document.getElementById('catchPhotoField');
+    if (!photoField) return;
+    photoField.hidden = !photoFolderConfigured;
   }
 
   // ---------- VALIDATIONS TAB ----------

@@ -6,7 +6,16 @@
  *   Floats                        : Brand | Name | Type | Owner | (Status - auto-added)
  *   Validations                   : Brands (col A) | People (col B) | Float Types (col C) | Fish Types (col D) | Venues (col E)
 
- *   Fish Caught:   Date | Fish Type | Weight (kg) | Caught By | Venue | Dips | Sprays | Corn | Floats | Dough | Notes (optional)
+ *   Fish Caught:   Fish Type | Weight (kg) | Venue | Date | Caught By | Dips | Sprays | Corn | Floats | Dough | Photo (Drive file ID)
+ *
+ * Fish Caught's Photo column holds the Drive file ID of an optional
+ * uploaded photo (blank if none). Photos are uploaded to the folder
+ * configured on the Settings tab (see PHOTO_FOLDER_PROPERTY /
+ * getPhotoFolderId_); each one inherits that folder's own sharing
+ * settings, which is why the folder needs to be shared "Anyone with the
+ * link: Viewer" itself — see resolveFishCatchPhoto_. This app never
+ * deletes/trashes a photo from Drive on its own — also see
+ * resolveFishCatchPhoto_.
  *
  * "Quantity" = number of matching rows. There is no dedicated qty column —
  * each row represents one item a person has, so counting rows per
@@ -494,26 +503,161 @@ function saveVenueIfNew_(venue) {
 
 }
 
+// Document property key the selected photo-storage folder's Drive ID is
+// saved under. A document property is bound to this spreadsheet, so
+// every user of the app shares the same folder setting.
+const PHOTO_FOLDER_PROPERTY = 'photoFolderId';
+
 /**
- * Appends a new fish catch entry to the fishes caught sheet, recording any
- * new venue/fish type/owner into the Validations sheet along the way.
- * @param {Object} catchData - {fishType, weight, where, date, owner, dips, floats, corn, sprays, dough}.
- * @return {boolean} true on success.
+ * Reads the currently configured photo-storage folder's Drive ID.
+ * @return {string} Folder ID, or '' if none has been set.
  */
-function saveFishCatch(catchData) {
+function getPhotoFolderId_() {
+  return PropertiesService.getDocumentProperties().getProperty(PHOTO_FOLDER_PROPERTY) || '';
+}
 
-  const sheet = SpreadsheetApp.getActive().getSheetByName(FISH_SHEET_NAME);
+/**
+ * Manual test helper: unconditionally touches DriveApp, so running this
+ * one function directly in the Apps Script editor (function dropdown
+ * next to Run) reliably triggers Drive's authorization prompt if it
+ * hasn't been granted yet — unlike getPhotoFolderInfo()/setPhotoFolder(),
+ * which can return early without ever calling DriveApp (e.g. no folder
+ * saved yet), leaving the prompt untriggered. Logs the account's Drive
+ * root folder name on success. Safe to run any time; makes no changes.
+ * @return {void}
+ */
+function testDriveAccess_() {
+  Logger.log(DriveApp.getRootFolder().getName());
+}
 
+/**
+ * Reads the currently configured photo-storage folder, for display on the
+ * Settings tab.
+ * @return {Object} {folderId, folderName, folderUrl} — all '' if unset, or {folderId, error} if the saved folder can no longer be reached.
+ */
+function getPhotoFolderInfo() {
+  const folderId = getPhotoFolderId_();
+  if (!folderId) {
+    return { folderId: '', folderName: '', folderUrl: '' };
+  }
+
+  try {
+    const folder = DriveApp.getFolderById(folderId);
+    return { folderId: folderId, folderName: folder.getName(), folderUrl: folder.getUrl() };
+  } catch (error) {
+    return {
+      folderId: folderId,
+      folderName: '',
+      folderUrl: '',
+      error: 'Could not open the configured folder (ID "' + folderId + '"): ' + error.message
+    };
+  }
+}
+
+/**
+ * Sets (or clears) the Drive folder that fish-catch photos get uploaded
+ * to, from a pasted folder URL or a raw folder ID.
+ * @param {string} folderUrlOrId - A Drive folder URL/ID, or '' to clear the setting.
+ * @return {Object} {success: boolean, folderId, folderName, folderUrl} on set, {success: boolean, cleared: true} on clear.
+ */
+function setPhotoFolder(folderUrlOrId) {
+  const input = String(folderUrlOrId || '').trim();
+
+  if (!input) {
+    PropertiesService.getDocumentProperties().deleteProperty(PHOTO_FOLDER_PROPERTY);
+    return { success: true, cleared: true };
+  }
+
+  // Pull the Drive ID out of a pasted folder URL: Drive IDs are long runs
+  // of letters/digits/hyphens/underscores, so the first such run of a
+  // reasonable length is taken as the ID — this also means a bare ID
+  // (no URL) passes through unchanged.
+  const idMatch = input.match(/[-\w]{15,}/);
+  const folderId = idMatch ? idMatch[0] : input;
+
+  let folder;
+  try {
+    folder = DriveApp.getFolderById(folderId);
+  } catch (error) {
+    // Surface Drive's actual error instead of a generic guess — it's
+    // usually either a genuinely bad ID, or (the more common case the
+    // first time this feature is used) the deployment hasn't been
+    // re-authorized for Drive access yet: redeploy a new version and
+    // accept the Drive permission prompt, then try again.
+    throw new Error('Could not open that folder (ID "' + folderId + '"): ' + error.message);
+  }
+
+  PropertiesService.getDocumentProperties().setProperty(PHOTO_FOLDER_PROPERTY, folderId);
+
+  return { success: true, folderId: folderId, folderName: folder.getName(), folderUrl: folder.getUrl() };
+}
+
+/**
+ * Works out the photo Drive file ID a catch should end up with: uploads a
+ * newly attached photo, or leaves an existing photo's ID as-is or clears
+ * it (on removal). This app never deletes or trashes a Drive file it
+ * didn't just create — replacing or removing a catch's photo, or
+ * deleting the catch entirely, only ever changes what the sheet
+ * references, never anything in Drive itself. Any old file is left
+ * exactly where it was, for the user to clean up manually if they want.
+ * Shared by saveFishCatch and updateFishCatch.
+ * @param {Object} catchData - {photoBase64, photoMimeType, photoName, existingPhotoFileId, removePhoto}.
+ * @return {string} The photo Drive file ID to store on the row ('' for no photo).
+ */
+function resolveFishCatchPhoto_(catchData) {
+  const hasNewPhoto = !!catchData.photoBase64;
+
+  if (!hasNewPhoto && !catchData.removePhoto) {
+    return catchData.existingPhotoFileId || '';
+  }
+
+  if (!hasNewPhoto) {
+    return '';
+  }
+
+  const photoFolderId = getPhotoFolderId_();
+  if (!photoFolderId) {
+    throw new Error('Set a photo folder on the Settings tab before attaching photos.');
+  }
+
+  // No explicit setSharing() call here on purpose: a file created inside
+  // a folder inherits that folder's sharing settings in Drive. As long as
+  // the configured folder itself is shared "Anyone with the link", every
+  // photo uploaded into it already is too — setting it per-file was both
+  // redundant and, for some folders/accounts, outright rejected by Drive
+  // even for the folder's owner.
+  const photoFile = DriveApp.getFolderById(photoFolderId).createFile(
+    Utilities.newBlob(
+      Utilities.base64Decode(catchData.photoBase64),
+      catchData.photoMimeType || 'image/jpeg',
+      catchData.photoName || 'catch.jpg'
+    )
+  );
+
+  return photoFile.getId();
+}
+
+/**
+ * Registers a fish catch's venue/fish type/owner into the Validations
+ * sheet if they're new. Shared by saveFishCatch and updateFishCatch.
+ * @param {Object} catchData - {fishType, where, owner, ...}.
+ * @return {void}
+ */
+function registerFishCatchValidations_(catchData) {
   saveVenueIfNew_(catchData.where);
-  addValidationValue_(
-    VALIDATION_COLUMNS.FISH_TYPES,
-    catchData.fishType
-  );
-  addValidationValue_(
-    VALIDATION_COLUMNS.OWNERS,
-    catchData.owner
-  );
-  sheet.appendRow([
+  addValidationValue_(VALIDATION_COLUMNS.FISH_TYPES, catchData.fishType);
+  addValidationValue_(VALIDATION_COLUMNS.OWNERS, catchData.owner);
+}
+
+/**
+ * Builds the Fishes Caught row (column order: Fish Type, Weight, Venue,
+ * Date, Owner, then one JSON-array column per gear category) for a catch.
+ * Shared by saveFishCatch and updateFishCatch.
+ * @param {Object} catchData - {fishType, weight, where, date, owner, dips, floats, corn, sprays, dough}.
+ * @return {Array} The row's 10 column values, in sheet order.
+ */
+function buildFishCatchRow_(catchData) {
+  return [
     catchData.fishType,
     catchData.weight,
     catchData.where,
@@ -524,10 +668,78 @@ function saveFishCatch(catchData) {
     JSON.stringify(catchData.corn || []),
     JSON.stringify(catchData.sprays || []),
     JSON.stringify(catchData.dough || [])
-  ]);
+  ];
+}
+
+/**
+ * Confirms a Fishes Caught row index still points at a real data row (not
+ * the header, and not past the sheet's current last row — e.g. because
+ * the catch was already deleted by someone else).
+ * @param {Sheet} sheet - The Fishes Caught sheet.
+ * @param {number} rowIndex - 1-based sheet row number to check.
+ * @return {void}
+ */
+function assertFishCatchRowExists_(sheet, rowIndex) {
+  if (!Number.isInteger(rowIndex) || rowIndex < 2 || rowIndex > sheet.getLastRow()) {
+    throw new Error('That catch no longer exists — try refreshing and trying again.');
+  }
+}
+
+/**
+ * Appends a new fish catch entry to the fishes caught sheet, recording any
+ * new venue/fish type/owner into the Validations sheet along the way.
+ * @param {Object} catchData - {fishType, weight, where, date, owner, dips, floats, corn, sprays, dough}.
+ * @return {boolean} true on success.
+ */
+function saveFishCatch(catchData) {
+
+  const sheet = SpreadsheetApp.getActive().getSheetByName(FISH_SHEET_NAME);
+
+  registerFishCatchValidations_(catchData);
+
+  const row = buildFishCatchRow_(catchData);
+  row.push(resolveFishCatchPhoto_(catchData));
+  sheet.appendRow(row);
 
   return true;
 
+}
+
+/**
+ * Overwrites an existing fish catch entry in place (e.g. to fix the wrong
+ * bait/gear having been selected), recording any new venue/fish
+ * type/owner into the Validations sheet along the way.
+ * @param {number} rowIndex - The sheet row number (as returned by getFishCatches).
+ * @param {Object} catchData - {fishType, weight, where, date, owner, dips, floats, corn, sprays, dough}.
+ * @return {Object} {success: boolean}
+ */
+function updateFishCatch(rowIndex, catchData) {
+  rowIndex = Number(rowIndex);
+  const sheet = SpreadsheetApp.getActive().getSheetByName(FISH_SHEET_NAME);
+  assertFishCatchRowExists_(sheet, rowIndex);
+
+  registerFishCatchValidations_(catchData);
+
+  const row = buildFishCatchRow_(catchData);
+  row.push(resolveFishCatchPhoto_(catchData));
+  sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
+
+  return { success: true };
+}
+
+/**
+ * Deletes a fish catch entry.
+ * @param {number} rowIndex - The sheet row number (as returned by getFishCatches).
+ * @return {Object} {success: boolean}
+ */
+function deleteFishCatch(rowIndex) {
+  rowIndex = Number(rowIndex);
+  const sheet = SpreadsheetApp.getActive().getSheetByName(FISH_SHEET_NAME);
+  assertFishCatchRowExists_(sheet, rowIndex);
+
+  sheet.deleteRow(rowIndex);
+
+  return { success: true };
 }
 
 /**
@@ -626,6 +838,30 @@ function setItemStatus(category, rowIndex, usedUp) {
 }
 
 /**
+ * Permanently deletes a gear item's row from its category sheet — e.g.
+ * for something the owner no longer has and doesn't want to restock. This
+ * is a real delete (unlike Validations entries, which are soft-deleted):
+ * there's no sheet row left to "add back" and recover.
+ * @param {string} category - One of CATEGORIES.
+ * @param {number} rowIndex - The sheet row number (as returned by getAllData).
+ * @return {Object} {success: boolean}
+ */
+function deleteGearItem(category, rowIndex) {
+  if (CATEGORIES.indexOf(category) === -1) {
+    throw new Error('Unknown category: ' + category);
+  }
+  rowIndex = Number(rowIndex);
+
+  const sheet = getSheetByCategory_(category);
+  if (!Number.isInteger(rowIndex) || rowIndex < 2 || rowIndex > sheet.getLastRow()) {
+    throw new Error('That item no longer exists — try refreshing and trying again.');
+  }
+
+  sheet.deleteRow(rowIndex);
+  return { success: true };
+}
+
+/**
  * Builds an owner x category count matrix (the "quantity" comparison).
  * @return {Object} {
  *   owners: string[],
@@ -718,7 +954,7 @@ function parseList_(value){
 
 /**
  * Reads and normalizes every row of the fishes caught (Fish Caught) sheet.
- * @return {Array<Object>} Array of {fishType, weight, where, date, owner, dips, floats, corn, sprays, dough}.
+ * @return {Array<Object>} Array of {rowIndex, fishType, weight, where, date, owner, dips, floats, corn, sprays, dough, photoFileId, photoUrl}.
  */
 function getFishCatches() {
 
@@ -728,22 +964,40 @@ function getFishCatches() {
 
   values.shift();
 
-  return values.map(function (r) {
+  return values.map(function (row, index) {
+
+    const photoFileId = String(row[10] || "");
 
     return {
-      fishType: String(r[0] || ""),
-      weight: Number(r[1] || 0),
-      where: String(r[2] || ""),
-      date: r[3]
-        ? Utilities.formatDate(r[3], Session.getScriptTimeZone(), "yyyy-MM-dd")
+      // +2: index is 0-based and counts from the first data row, but the
+      // sheet is 1-based and row 1 is the header — so data row 0 is
+      // actually sheet row 2.
+      rowIndex: index + 2,
+      fishType: String(row[0] || ""),
+      weight: Number(row[1] || 0),
+      where: String(row[2] || ""),
+      date: row[3]
+        ? Utilities.formatDate(row[3], Session.getScriptTimeZone(), "yyyy-MM-dd")
         : "",
-      owner: String(r[4] || ""),
+      owner: String(row[4] || ""),
 
-      dips: parseList_(r[5]),
-      floats: parseList_(r[6]),
-      corn: parseList_(r[7]),
-      sprays: parseList_(r[8]),
-      dough: parseList_(r[9])
+      dips: parseList_(row[5]),
+      floats: parseList_(row[6]),
+      corn: parseList_(row[7]),
+      sprays: parseList_(row[8]),
+      dough: parseList_(row[9]),
+
+      photoFileId: photoFileId,
+      // Drive's "thumbnail" endpoint, not the older "uc?export=view" one:
+      // the latter frequently redirects to an interstitial/confirmation
+      // response instead of the raw image when used as an <img> src (it
+      // still works fine when a browser navigates straight to it, which
+      // is why "open in a new tab" can succeed even when the same URL
+      // fails to embed) — "thumbnail" reliably returns actual image
+      // bytes instead. Requires the file to be shared "Anyone with the
+      // link: Viewer", inherited from the photo-storage folder's own
+      // sharing — see resolveFishCatchPhoto_.
+      photoUrl: photoFileId ? ('https://drive.google.com/thumbnail?id=' + photoFileId + '&sz=w2000') : ""
     };
 
   });
