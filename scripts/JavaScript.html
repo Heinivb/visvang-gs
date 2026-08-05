@@ -24,8 +24,20 @@
     setupValidationsTab();
     setupPhotoFolderSettings();
     renderPhotoFolderStatus();
+    document.getElementById('userStats').addEventListener('click', handleUserStatsClick);
     loadEverything();
   });
+
+  /**
+   * Delegated click handler for the Stats tab's User Stats cards: routes
+   * clicks on a Personal Best tile to the catch-detail modal.
+   * @param {MouseEvent} e - Click event within #userStats.
+   * @return {void}
+   */
+  function handleUserStatsClick(e) {
+    var btn = e.target.closest('[data-action="open-catch-detail"]');
+    if (btn) openCatchDetailModal(Number(btn.dataset.row));
+  }
 
   /**
    * Wires up the top-level tab buttons so clicking one shows its panel
@@ -567,7 +579,10 @@
 
     var catIndex = (fishIndex && fishIndex[category]) || {};
 
-    var bodyRows = items.map(function (it) {
+    var rowsHtml = [];
+    var mobileCardsHtml = [];
+
+    items.forEach(function (it) {
 
     var catches = catIndex[it.name.trim().toLowerCase()] || [];
 
@@ -631,7 +646,7 @@
         ' data-name="' + escapeHtml(it.name) + '"' +
         ' title="Delete this item permanently">🗑️</button>';
 
-      return '<tr>' +
+      rowsHtml.push('<tr>' +
         '<td class="item-name" data-label="Brand">' + brandCell + '</td>' +
         '<td class="item-name" data-label="Name" title="' + escapeHtml(it.name) + '">' + escapeHtml(it.name) + '</td>' +
         (showType ? '<td data-label="Type">' + typeCell + '</td>' : '') +
@@ -640,14 +655,40 @@
         '<td data-label="Record" title="Record a catch">' + recordBtn + '</td>' +
         '<td data-label="Status">' + statusBtn + '</td>' +
         '<td data-label="Delete">' + deleteBtn + '</td>' +
-        '</tr>';
+        '</tr>');
 
-    }).join('');
+      // Compact mobile equivalent of the row above: a small card with the
+      // name/brand up top, owner + type as tags, and every action button
+      // in one row — a fraction of the height of the old label/value
+      // stack, so several items fit on screen at once instead of one.
+      var tagsHtml =
+        '<span class="owner-tag">' + escapeHtml(it.owner) + '</span>' +
+        '<span class="browse-item-card-brand">' + brandCell + '</span>' +
+        (showType ? '<span class="browse-item-card-type">' + typeCell + '</span>' : '');
 
-    table.innerHTML = '<thead><tr>' + headCols + '</tr></thead><tbody>' + bodyRows + '</tbody>';
+      mobileCardsHtml.push(
+        '<div class="browse-item-card">' +
+        '<div class="browse-item-card-top">' +
+        '<div class="browse-item-card-name" title="' + escapeHtml(it.name) + '">' + escapeHtml(it.name) + '</div>' +
+        deleteBtn +
+        '</div>' +
+        '<div class="browse-item-card-tags">' + tagsHtml + '</div>' +
+        '<div class="browse-item-card-actions">' + fishBtn + recordBtn + statusBtn + '</div>' +
+        '</div>'
+      );
+
+    });
+
+    table.innerHTML = '<thead><tr>' + headCols + '</tr></thead><tbody>' + rowsHtml.join('') + '</tbody>';
     table.addEventListener('click', handleItemTableClick);
     tableWrap.appendChild(table);
     card.appendChild(tableWrap);
+
+    var mobileList = document.createElement('div');
+    mobileList.className = 'browse-item-cards' + (isCollapsed ? ' collapsed' : '');
+    mobileList.innerHTML = mobileCardsHtml.join('');
+    mobileList.addEventListener('click', handleItemTableClick);
+    card.appendChild(mobileList);
 
     return card;
   }
@@ -1566,6 +1607,43 @@ function setupRecordCatchModal() {
   }
 
   /**
+   * Opens the "caught with this item" modal for a single catch by its
+   * sheet row index — used by the Stats tab's Personal Best, so tapping
+   * it shows that catch's full details (including photo, if any).
+   * @param {number} rowIndex - The catch's sheet row number (as returned by getFishCatches).
+   * @return {void}
+   */
+  function openCatchDetailModal(rowIndex) {
+    var rawCatch = (Array.isArray(fishCatches) ? fishCatches : [])
+      .find(function (c) { return c.rowIndex === rowIndex; });
+
+    if (!rawCatch) {
+      showInfoModal('That catch could not be found — try refreshing.', 'Not found');
+      return;
+    }
+
+    var combo = {};
+    CATEGORIES.forEach(function (cat) { combo[cat] = rawCatch[cat.toLowerCase()] || []; });
+
+    var catchEntry = {
+      fishType: rawCatch.fishType,
+      weight: rawCatch.weight,
+      where: rawCatch.where,
+      date: rawCatch.date,
+      owner: rawCatch.owner,
+      photoUrl: rawCatch.photoUrl,
+      combo: combo
+    };
+
+    document.getElementById('fishModalTitle').textContent =
+      (rawCatch.fishType || 'Catch') + ' details';
+
+    document.getElementById('fishModalBody').innerHTML = buildCatchEntriesHtml([catchEntry]);
+
+    document.getElementById('fishModal').hidden = false;
+  }
+
+  /**
    * Builds the HTML for a list of catch entries (used by the "caught with
    * this" modal and the Bait &rarr; Fish lookup panel), highlighting which
    * combo entry matches the item being looked up, if given.
@@ -1902,38 +1980,102 @@ function setupRecordCatchModal() {
       });
     }
 
-    var headRow = '<th>Owner</th>' + summary.categories.map(function (cat) {
-      return '<th>' + escapeHtml(cat) + '</th>';
+    var headRow = '<th>Owner</th>' + summary.categories.map(function (c) {
+      return '<th>' + escapeHtml(c) + '</th>';
     }).join('') + '<th>Total</th>';
 
     var bodyRows = summary.owners.map(function (owner) {
       var cells = summary.categories.map(function (cat) {
-        var count = (summary.counts[owner] && summary.counts[owner][cat]) || 0;
+        var c = (summary.counts[owner] && summary.counts[owner][cat]) || 0;
         var isLeader = leaders[cat].has(owner);
-        return '<td class="' + (isLeader ? 'cell-leader' : '') + '" data-label="' + escapeHtml(cat) + '">' +
-          count + (isLeader ? ' <span class="crown" title="Most ' + escapeHtml(cat) + '">&#9819;</span>' : '') +
+        return '<td class="' + (isLeader ? 'cell-leader' : '') + '">' +
+          c + (isLeader ? ' <span class="crown" title="Most ' + escapeHtml(cat) + '">&#9819;</span>' : '') +
           '</td>';
       }).join('');
       var total = summary.totals[owner] || 0;
       var isTotalLeader = totalLeaders.has(owner);
-      return '<tr><td data-label="Owner">' + escapeHtml(owner) + '</td>' + cells +
-        '<td class="' + (isTotalLeader ? 'cell-leader' : '') + '" data-label="Total">' + total +
+      return '<tr><td>' + escapeHtml(owner) + '</td>' + cells +
+        '<td class="' + (isTotalLeader ? 'cell-leader' : '') + '">' + total +
         (isTotalLeader ? ' <span class="crown" title="Most overall">&#9819;</span>' : '') +
         '</td></tr>';
     }).join('');
 
-    var totalsRow = '<td data-label="Owner">Category total</td>' + summary.categories.map(function (cat) {
+    var totalsRow = '<td>Category total</td>' + summary.categories.map(function (cat) {
       var total = summary.owners.reduce(function (sum, owner) {
         return sum + ((summary.counts[owner] && summary.counts[owner][cat]) || 0);
       }, 0);
-      return '<td data-label="' + escapeHtml(cat) + '">' + total + '</td>';
-    }).join('') + '<td data-label="Total">' + Object.values(summary.totals).reduce(function (a, b) { return a + b; }, 0) + '</td>';
+      return '<td>' + total + '</td>';
+    }).join('') + '<td>' + Object.values(summary.totals).reduce(function (a, b) { return a + b; }, 0) + '</td>';
 
-    container.innerHTML = '<table class="compare-table">' +
+    var cardsHtml = buildCompareCards(summary, leaders, totalLeaders);
+
+    container.innerHTML =
+      '<div class="compare-table-scroll"><table class="compare-table">' +
       '<thead><tr>' + headRow + '</tr></thead>' +
       '<tbody>' + bodyRows + '</tbody>' +
       '<tfoot><tr>' + totalsRow + '</tr></tfoot>' +
-      '</table>';
+      '</table></div>' +
+      cardsHtml;
+  }
+
+  // Emoji shown next to each category's name on the Compare tab's
+  // mobile card view (see buildCompareCards()). Falls back to a plain
+  // bullet for any category not listed here.
+  var COMPARE_CATEGORY_ICON = {
+    Dips: '🎣',
+    Sprays: '💦',
+    Corn: '🌽',
+    Floats: '🪝',
+    Dough: '🍞'
+  };
+
+  /**
+   * Builds the Compare tab's small-screen fallback: one ranked card per
+   * category (plus an overall Total card), instead of the wide table
+   * which forces horizontal scrolling on a phone. Shown/hidden purely
+   * via CSS media query — see .compare-cards in Stylesheet.html.
+   * @param {Object} summary - {owners, categories, counts, totals}.
+   * @param {Object} leaders - category -> Set of leading owner names.
+   * @param {Set} totalLeaders - owner names leading the Total column.
+   * @return {string} HTML for the .compare-cards block.
+   */
+  function buildCompareCards(summary, leaders, totalLeaders) {
+    function renderCard(title, icon, rows, isTotal) {
+      rows = rows.slice().sort(function (a, b) { return b.count - a.count; });
+      var rowsHtml = rows.map(function (row, i) {
+        return '<div class="compare-card-row' + (row.isLeader ? ' compare-card-row-leader' : '') + '">' +
+          '<span class="compare-card-rank">' + (row.isLeader ? '👑' : (i + 1)) + '</span>' +
+          '<span class="compare-card-name">' + escapeHtml(row.owner) + '</span>' +
+          '<span class="compare-card-count">' + row.count + '</span>' +
+          '</div>';
+      }).join('');
+      return '<div class="compare-card' + (isTotal ? ' compare-card-total' : '') + '">' +
+        '<div class="compare-card-title"><span class="compare-card-icon">' + icon + '</span>' + escapeHtml(title) + '</div>' +
+        rowsHtml +
+        '</div>';
+    }
+
+    var categoryCards = summary.categories.map(function (cat) {
+      var rows = summary.owners.map(function (owner) {
+        return {
+          owner: owner,
+          count: (summary.counts[owner] && summary.counts[owner][cat]) || 0,
+          isLeader: leaders[cat].has(owner)
+        };
+      });
+      return renderCard(cat, COMPARE_CATEGORY_ICON[cat] || '•', rows, false);
+    }).join('');
+
+    var totalRows = summary.owners.map(function (owner) {
+      return {
+        owner: owner,
+        count: summary.totals[owner] || 0,
+        isLeader: totalLeaders.has(owner)
+      };
+    });
+    var totalCard = renderCard('Total', '🏆', totalRows, true);
+
+    return '<div class="compare-cards">' + categoryCards + totalCard + '</div>';
   }
 
   // ---------- STATS TAB EXTRAS ----------
@@ -2041,7 +2183,7 @@ function setupRecordCatchModal() {
         }
 
         if (!personalBests[owner] || w > personalBests[owner].weight) {
-          personalBests[owner] = { weight: w, fishType: c.fishType, where: venue, date: c.date };
+          personalBests[owner] = { weight: w, fishType: c.fishType, where: venue, date: c.date, rowIndex: c.rowIndex };
         }
 
         if (!ownerWeightTotals[owner]) ownerWeightTotals[owner] = { total: 0, weighedCount: 0 };
@@ -2166,13 +2308,18 @@ function setupRecordCatchModal() {
       if (pb.fishType) pbDetails.push(escapeHtml(pb.fishType));
       if (pb.where) pbDetails.push(escapeHtml(pb.where));
 
+      var pbTag = (pb.rowIndex !== undefined && pb.rowIndex !== null) ? 'button' : 'div';
+      var pbAttrs = pbTag === 'button'
+        ? ' type="button" class="user-stat-pb user-stat-pb-clickable" data-action="open-catch-detail" data-row="' + pb.rowIndex + '" title="View this catch"'
+        : ' class="user-stat-pb"';
+
       personalBestHtml =
-        '<div class="user-stat-pb">' +
+        '<' + pbTag + pbAttrs + '>' +
         '<span class="user-stat-pb-value">' + pb.weight + ' kg</span>' +
         '<span class="user-stat-pb-label">Personal Best' +
         (pbDetails.length ? ' — ' + pbDetails.join(' @ ') : '') +
         '</span>' +
-        '</div>';
+        '</' + pbTag + '>';
     } else {
       personalBestHtml = '<div class="user-stat-pb user-stat-pb-empty">No weighed catches yet</div>';
     }

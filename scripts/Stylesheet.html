@@ -206,6 +206,14 @@
     display: none;
   }
 
+  .browse-item-cards {
+    display: none;
+  }
+
+  .browse-item-cards.collapsed {
+    display: none;
+  }
+
   .badge {
     background: var(--color-primary);
     color: #fff;
@@ -301,6 +309,9 @@
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-card);
     padding: 16px;
+  }
+
+  .compare-table-scroll {
     overflow-x: auto;
   }
 
@@ -308,6 +319,12 @@
     width: 100%;
     border-collapse: collapse;
     min-width: 480px;
+  }
+
+  .compare-cards {
+    display: none;
+    flex-direction: column;
+    gap: 14px;
   }
 
   .compare-table th,
@@ -736,6 +753,106 @@
     vertical-align:middle;
 }
 @media (max-width: 768px) {
+  /* The owner x category compare table has too many columns to fit a
+     phone screen without horizontal scrolling. Below this width, swap
+     it for a stack of per-category ranked cards instead (built in
+     buildCompareCards() / JavaScript.html). */
+  .compare-table-scroll {
+    display: none;
+  }
+
+  .compare-cards {
+    display: flex;
+  }
+
+  .compare-card {
+    background: var(--color-bg);
+    border-radius: var(--radius-md);
+    padding: 14px 14px 6px;
+  }
+
+  .compare-card-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 0.82rem;
+    color: var(--color-primary-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding-bottom: 10px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .compare-card-icon {
+    font-size: 1.05rem;
+  }
+
+  .compare-card-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 4px;
+    margin-bottom: 6px;
+    background: var(--color-surface);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+  }
+
+  .compare-card-rank {
+    flex: 0 0 22px;
+    text-align: center;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--color-text-muted);
+  }
+
+  .compare-card-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .compare-card-count {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text);
+  }
+
+  .compare-card-row-leader {
+    background: var(--color-primary-soft);
+    box-shadow: inset 3px 0 0 var(--color-accent);
+  }
+
+  .compare-card-row-leader .compare-card-name {
+    font-weight: 700;
+    color: var(--color-primary-dark);
+  }
+
+  .compare-card-row-leader .compare-card-rank {
+    font-size: 0.95rem;
+  }
+
+  .compare-card-row-leader .compare-card-count {
+    color: var(--color-primary-dark);
+  }
+
+  .compare-card-total {
+    background: var(--color-primary-soft);
+  }
+
+  .compare-card-total .compare-card-row {
+    background: var(--color-surface);
+  }
+
+  .compare-card-total .compare-card-title {
+    color: var(--color-primary-dark);
+    border-bottom-color: rgba(15, 110, 110, 0.25);
+  }
+
   .tabs {
     flex-wrap: wrap;
     gap: 4px;
@@ -756,58 +873,78 @@
   }
 
   /* Below this width a table with 7-8 columns doesn't fit without
-     horizontal scrolling, which is awkward to use on a phone. Instead,
-     each row becomes a stacked card: the table/thead/tbody/tr/td are all
-     switched to block display, and each td gets a label (from its
-     data-label attribute, set in buildCategoryCard()) via ::before,
-     positioned opposite its value with flex + space-between. */
-  .item-table thead {
+     horizontal scrolling. Instead of stacking every cell as its own
+     labeled row (tall — only one item fit on screen at a time), swap the
+     table for a compact card per item: name up top, owner/brand/type as
+     small tags, and every action button in a single row. Built alongside
+     the table in buildCategoryCard() and toggled purely by this query. */
+  .item-table-wrap {
     display: none;
   }
 
-  .item-table,
-  .item-table tbody,
-  .item-table tr,
-  .item-table td {
-    display: block;
-    width: 100%;
+  .browse-item-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
   }
 
-  .item-table tr {
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    margin-bottom: 10px;
-    padding: 4px 12px;
+  .browse-item-cards.collapsed {
+    display: none;
   }
 
-  .item-table tr:last-child {
-    margin-bottom: 0;
+  .browse-item-card {
+    background: var(--color-bg);
+    border-radius: var(--radius-sm);
+    padding: 10px 10px 8px;
   }
 
-  .item-table td {
+  .browse-item-card-top {
     display: flex;
     justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .browse-item-card-name {
+    font-weight: 700;
+    font-size: 0.92rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .browse-item-card-tags {
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--color-border);
-    white-space: normal;
-    max-width: none;
-    font-size: 0.85rem;
-  }
-
-  .item-table td:last-child {
-    border-bottom: none;
-  }
-
-  .item-table td::before {
-    content: attr(data-label);
-    flex-shrink: 0;
-    font-weight: 600;
+    gap: 6px;
+    margin: 6px 0;
+    font-size: 0.78rem;
     color: var(--color-text-muted);
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
+  }
+
+  .browse-item-card-brand,
+  .browse-item-card-type {
+    background: var(--color-surface);
+    border-radius: 999px;
+    padding: 2px 8px;
+  }
+
+  .browse-item-card-tags .inline-edit {
+    padding: 3px 8px;
+    font-size: 0.78rem;
+    min-width: 90px;
+  }
+
+  .browse-item-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .browse-item-card-actions .status-btn {
+    margin-left: auto;
   }
 
   .icon-btn {
@@ -1006,6 +1143,29 @@
 .user-stat-pb-label {
   font-size: 0.78rem;
   color: var(--color-text-muted);
+}
+
+.user-stat-pb-clickable {
+  border: none;
+  background: transparent;
+  padding: 6px;
+  margin: -6px -6px 0;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.15s ease;
+}
+
+.user-stat-pb-clickable:hover,
+.user-stat-pb-clickable:focus-visible {
+  background: var(--color-primary-soft);
+  outline: none;
+}
+
+.user-stat-pb-clickable .user-stat-pb-label::after {
+  content: ' \1F4F7';
+  opacity: 0.7;
 }
 
 .user-stat-pb-empty {
@@ -1256,5 +1416,14 @@
   display: flex;
   justify-content: center;
   gap: 10px;
+}
+.compare-leader{
+    background:#e8f6ed;
+    border-left:4px solid #2e7d32;
+    font-weight:700;
+}
+
+.compare-leader strong{
+    color:#2e7d32;
 }
 </style>
