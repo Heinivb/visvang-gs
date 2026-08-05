@@ -133,6 +133,12 @@
     box-shadow: 0 0 0 3px var(--color-primary-soft);
   }
 
+  select:disabled,
+  input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
   .results {
     display: flex;
     flex-direction: column;
@@ -715,8 +721,16 @@
     vertical-align:middle;
 }
 @media (max-width: 768px) {
+  .tabs {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
   .tab-btn {
-    padding: 2px 1px;
+    flex: 1 1 30%;
+    padding: 8px 4px;
+    font-size: 0.72rem;
+    white-space: normal;
+    line-height: 1.2;
   }
   .item-table-wrap {
     overflow-x: auto;
@@ -756,6 +770,20 @@
   .status-btn {
     padding: 4px 8px;
     font-size: 11px;
+  }
+
+  .stats-list-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+  }
+
+  .lookup-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .validation-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -884,5 +912,240 @@
 .stats-note .stats-highlight {
   color: var(--color-primary-dark);
   font-weight: 700;
+}
+
+/* ---------- USER STATS ---------- */
+
+.user-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.user-stat-card {
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  padding: 14px;
+}
+
+.user-stat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.user-stat-header h5 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--color-primary-dark);
+}
+
+.user-stat-pb {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.user-stat-pb-value {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--color-accent);
+  line-height: 1.15;
+}
+
+.user-stat-pb-label {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.user-stat-pb-empty {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin-bottom: 6px;
+}
+
+.user-stat-meta {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+/* ---------- LOOKUP TAB ---------- */
+
+.lookup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.lookup-panel {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 16px;
+}
+
+.lookup-panel h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  color: var(--color-primary-dark);
+}
+
+.lookup-panel .field {
+  margin: 10px 0 14px;
+}
+
+.lookup-panel .results {
+  gap: 10px;
+}
+
+/* ---------- VALIDATIONS TAB ---------- */
+
+.validation-seed-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+  margin-bottom: 16px;
+}
+
+.validation-seed-bar .secondary-btn {
+  flex-shrink: 0;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.validation-seed-hint {
+  margin: 0;
+  flex: 1;
+  min-width: 200px;
+}
+
+.validation-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.validation-group {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 16px;
+}
+
+.validation-group h4 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  color: var(--color-primary-dark);
+}
+
+.validation-add-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.validation-add-form input {
+  flex: 1;
+  min-width: 0;
+}
+
+.validation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.validation-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+}
+
+.validation-list-value {
+  overflow-wrap: anywhere;
+}
+
+.validation-list-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.validation-list-item input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 0.85rem;
+}
+
+.secondary-btn {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 9px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondary-btn:hover {
+  border-color: var(--color-text-muted);
+  color: var(--color-text);
+}
+
+.danger-btn {
+  background: var(--color-danger);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 9px 16px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.danger-btn:hover {
+  background: #932f16;
+}
+
+.icon-btn:disabled,
+.secondary-btn:disabled,
+.danger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Small inline spinner swapped into a button's content while an action
+   is in flight (see setButtonBusy/clearButtonBusy). Uses currentColor so
+   it automatically matches whatever text color the button already has,
+   light or dark. */
+.btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -3px;
+  opacity: 0.85;
+  animation: spin 0.6s linear infinite;
+}
+
+.confirm-modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
 }
 </style>

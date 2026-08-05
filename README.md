@@ -31,13 +31,13 @@ You do not need to install anything on your computer. Everything happens inside 
 
 > 💡 If you'd rather start from a completely blank sheet instead of the example file, see the "Spreadsheet layout" section near the bottom of this README for exactly which columns each tab needs.
 
-## Step 2 — Fill in who's in your crew
+## Step 2 — Owners, brands, and everything else (optional)
 
-This is the one piece of setup data the app needs before it's useful.
+Nothing to do here — this step is just letting you know how it works, since it's different from older versions of this app.
 
-1. In your new Google Sheet, click the **Validations** tab at the bottom.
-2. Look at **column B** (it has the header **Owners**). Type the name of each person in your fishing crew, one name per row, starting at row 2 (row 1 is the header, leave it alone).
-3. You can leave the other columns (Brands, Float Types, Fish Types) empty for now — the app will automatically add new brands/types to them as your crew uses the Add Entry form. Same for column E (venues) — new fishing spots get added automatically the first time someone logs a catch there.
+You do **not** need to manually type anyone's name into the spreadsheet. Owners, brands, float types, fish types, and venues all register themselves automatically the first time they're used: add a piece of gear under a new person's name via **Add Gear**, or log a catch for a new fish type/venue via **Record Fish**, and that value is added for you.
+
+If you'd rather set some of these up ahead of time (or manage them later — rename or delete a value, for example), open the app and use the **Validations** tab. If you're starting from a spreadsheet that already has gear/catches in it from before this feature existed, click **🔄 Populate from existing data** on that tab once — it scans what's already there and adds anything missing.
 
 ## Step 3 — Open the Apps Script editor
 
@@ -102,8 +102,8 @@ At this point, in the left sidebar you should see exactly these four files: `Cod
 ## Step 6 — Try it out
 
 1. Open the Web app URL from Step 5 in a new browser tab.
-2. You should see the Fishing Inventory app load, with tabs across the top: **Browse**, **Stats**, **Fishes Caught**, **Requires Restock**, **Add Entry**.
-3. Click **Add Entry**, fill in a test item, and click **Add Entry** to save it.
+2. You should see the Fishing Inventory app load, with tabs across the top: **Browse**, **Stats**, **Fishes Caught**, **Lookup**, **Requires Restock**, **Add Gear**, **Validations**.
+3. Click **Add Gear**, fill in a test item, and click **Add Gear** to save it.
 4. Click the **Browse** tab and confirm your test item shows up.
 
 If that works, you're fully set up! Share the Web app URL with the rest of your crew.
@@ -125,7 +125,7 @@ Your existing Web app URL stays the same — you don't need to send your crew a 
 ## Troubleshooting
 
 - **"Script function not found" or a blank page when opening the link** — Double-check the four file names in Apps Script are exactly `Code`, `Index`, `Stylesheet`, `JavaScript` (Apps Script shows `Code.gs` for the script file, and just the name without `.html` for the HTML files).
-- **Owner/brand dropdowns are empty** — Make sure you filled in the **Owners** column (B) on the **Validations** tab (Step 2). Brands and types fill in automatically over time as people use the Add Entry form.
+- **Owner/brand dropdowns are empty, or gear you expect to see is missing** — Owners, brands, types, fish types, and venues all fill in automatically over time as people use the Add Gear and Record Fish forms. If you're migrating a spreadsheet that already had data in it before the app's **Validations** tab existed, open that tab and click **🔄 Populate from existing data** once — it back-fills anything already in use but not yet recognized (gear/catches referencing an unrecognized value are hidden until it's added, same as a deleted value would be).
 - **"Authorization required" errors when using the app** — Redeploy (see "Making changes later" above) and make sure "Execute as" is set to **Me**.
 - **Changes you made don't show up on the website** — You likely edited the files but forgot to create a **New version** of the deployment (see "Making changes later" above); simply saving the files in the Apps Script editor is not enough on its own.
 
@@ -134,10 +134,12 @@ Your existing Web app URL stays the same — you don't need to send your crew a 
 ## Features
 
 - **Browse** — filter all inventory items by owner, category, brand, or whether they've caught fish, with a text search.
-- **Stats** — an owner × category quantity matrix, crowning who owns the most of each category, plus fun derived stats (top angler, heaviest fish, "MVP bait", etc.).
-- **Fishes Caught** — a log of every catch (date, fish type, weight, venue, angler) with the bait/gear combo used, and a "Record Fish" form to add new catches.
+- **Stats** — an owner × category quantity matrix, crowning who owns the most of each category, plus fun derived stats: "MVP bait", per-venue statistics (including each venue's top bait), and a per-angler breakdown (catches logged, average weight, personal best) for every angler individually. An **Owner** filter at the top narrows the entire tab down to one person's stats.
+- **Fishes Caught** — a log of every catch (date, fish type, weight, venue, angler) with the bait/gear combo used, filterable by fish type and venue (plus free-text search), and a "Record Fish" form to add new catches.
+- **Lookup** — two quick lookups: pick a venue to see its most-used bait/gear and most-caught fish, or pick a fish type to see its most-used bait/gear and top venues.
 - **Requires Restock** — a quick view of everything marked "Used Up" so it can be replaced.
-- **Add Entry** — add new inventory items per category, with autocomplete for known brands/owners/types pulled from the sheet's `Validations` tab.
+- **Add Gear** — add new inventory items per category, with autocomplete for known brands/owners/types; any new value you type is registered automatically, no manual setup required.
+- **Validations** — manage the Brands, Owners, Float Types, Fish Types, and Venues lists directly: add new values, rename existing ones, or delete them (with a confirmation prompt). Deleting a value is a **soft delete** — it only removes it from the list; any gear or catches that reference it are hidden from every other tab rather than deleted, and reappear automatically if you add the same value back.
 - Items can be toggled between **Available** and **Used Up**, and brand/type fields can be edited inline.
 
 ## Project structure
@@ -150,14 +152,14 @@ scripts/
   Stylesheet.html    All CSS, inlined into Index via include('Stylesheet')
   JavaScript.html    Client-side logic, inlined into Index via include('JavaScript')
 sheet/
-  Visvang Example Sheet.xlsx   Example spreadsheet with the expected sheet/column layout
+  Fishing Example Sheet.xlsx   Example spreadsheet with the expected sheet/column layout
 ```
 
 ## Spreadsheet layout (for reference, or if starting from a blank sheet)
 
 - **Dips / Sprays / Corn / Dough** tabs: columns `Brand | Name | Owner | Status (auto-added)`
 - **Floats** tab: columns `Brand | Name | Type | Owner | Status (auto-added)`
-- **Validations** tab: `Brands (A) | Owners (B) | Float Types (C) | Fish Types (D) | Venues (E)` — these columns feed the dropdown/autocomplete options in the Add Entry and Record Fish forms
+- **Validations** tab: `Brands (A) | Owners (B) | Float Types (C) | Fish Types (D) | Venues (E)` — these columns feed the dropdown/autocomplete options in the Add Gear and Record Fish forms, and are managed from the app's **Validations** tab (values also register themselves automatically as they're used, and gear/catches referencing a value not in these lists are hidden until it's added — see Notes)
 - **Fishes Caught** tab: `Fish Type | Fish Weight | Where | Date | Owner | dips | floats | corn | sprays | dough`
 
 "Quantity" is simply the number of matching rows per owner/category — there's no dedicated quantity column. The `Status` column on each gear tab is created automatically (as the next free column) the first time an item is marked used up, so you don't need to add it yourself.
@@ -166,7 +168,10 @@ sheet/
 
 - The "used" columns on the Fishes Caught tab can hold multiple bait/gear names separated by commas or semicolons; blank, `0`, `-`, `none`, or `n/a` all mean "nothing used."
 - Matching a fish catch back to inventory items is by **Name only** (case-insensitive, trimmed) — if the same name exists under multiple owners in a category, a catch referencing that name will show against all of them, since the sheet doesn't record whose specific item was used.
+- Deleting a value on the **Validations** tab is a **soft delete**: it only removes that value from its list, never any gear/catch rows. Anything referencing the deleted value (e.g. an owner's gear, once that owner is deleted) is hidden from the app rather than removed, and reappears automatically the moment the same value is added back.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). See [AUTHORS.md](AUTHORS.md) for authorship.
+MIT, with the [Commons Clause](https://commonsclause.com/) — see [LICENSE](LICENSE). In short: anyone can freely use, copy, modify, and share this project, but selling it, sublicensing it, or offering it as a paid product/service is reserved to the copyright holder. Commercial licensing (including royalty arrangements) is available on request — see [AUTHORS.md](AUTHORS.md) for contact info.
+
+*(This isn't legal advice — if you need this enforced, have a lawyer review it for your situation.)*

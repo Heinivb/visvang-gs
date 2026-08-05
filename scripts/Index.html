@@ -13,11 +13,13 @@
     </header>
 
     <nav class="tabs" id="tabs">
-      <button class="tab-btn active" data-tab="browse">Browse</button>
-      <button class="tab-btn" data-tab="compare">Stats</button>
-      <button class="tab-btn" data-tab="fish">Fishes Caught</button>
-      <button class="tab-btn" data-tab="restock">Requires Restock</button>
-      <button class="tab-btn" data-tab="add">Add Entry</button>
+      <button class="tab-btn active" data-tab="browse" title="Browse and filter your gear">Browse</button>
+      <button class="tab-btn" data-tab="compare" title="Quantity totals and fun stats">Stats</button>
+      <button class="tab-btn" data-tab="fish" title="See every catch that's been logged">Fishes Caught</button>
+      <button class="tab-btn" data-tab="lookup" title="Look up bait/gear by venue or fish type">Lookup</button>
+      <button class="tab-btn" data-tab="restock" title="Everything marked Used Up">Requires Restock</button>
+      <button class="tab-btn" data-tab="add" title="Add a new piece of gear">Add Gear</button>
+      <button class="tab-btn" data-tab="validations" title="Manage owners, brands, types, fish types, and venues">Validations</button>
     </nav>
 
     <main>
@@ -65,6 +67,28 @@
 
       <!-- COMPARE TAB -->
       <section id="tab-compare" class="tab-panel">
+        <div class="filter-bar">
+          <label class="field">
+            <span>Owner</span>
+            <select id="statsOwnerFilter">
+              <option value="__all__">All owners</option>
+            </select>
+          </label>
+        </div>
+        <div id="userStats" class="stats-extras">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Crunching angler stats&hellip;</span>
+          </div>
+        </div>
+
+        <div id="statsCards" class="stats-extras">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Crunching the numbers&hellip;</span>
+          </div>
+        </div>
+
         <p class="hint">Total quantity (item count) per owner, by category. 👑 marks whoever has the most of each.</p>
         <div id="compareTable" class="compare-wrap">
           <div class="loading-state">
@@ -79,19 +103,66 @@
             <span>Digging up interesting stats&hellip;</span>
           </div>
         </div>
-      </section> 
+      </section>
       <!-- FISH TAB -->
       <section id="tab-fish" class="tab-panel">
-      
+        <div class="filter-bar">
+          <label class="field">
+            <span>Fish Type</span>
+            <select id="fishFilterType">
+              <option value="__all__">All fish</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Venue</span>
+            <select id="fishFilterVenue">
+              <option value="__all__">All venues</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Search</span>
+            <input type="search" id="fishFilterSearch" placeholder="Search fish, venue, angler"/>
+          </label>
+        </div>
+
         <div id="fishCatchList" class="results">
-      
+
           <div class="loading-state">
             <div class="spinner"></div>
             <span>Loading catches...</span>
           </div>
-      
+
         </div>
-      
+
+      </section>
+
+      <!-- LOOKUP TAB -->
+      <section id="tab-lookup" class="tab-panel">
+        <div class="lookup-grid">
+          <div class="lookup-panel">
+            <h3>Venue &rarr; Bait / gear</h3>
+            <p class="hint">Pick a venue to see what usually catches fish there.</p>
+            <label class="field">
+              <span>Venue</span>
+              <select id="lookupVenueSelect">
+                <option value="">Choose a venue&hellip;</option>
+              </select>
+            </label>
+            <div id="lookupVenueResults" class="results"></div>
+          </div>
+
+          <div class="lookup-panel">
+            <h3>Fish &rarr; Bait / gear</h3>
+            <p class="hint">Pick a fish type to see what usually catches it.</p>
+            <label class="field">
+              <span>Fish type</span>
+              <select id="lookupFishSelect">
+                <option value="">Choose a fish&hellip;</option>
+              </select>
+            </label>
+            <div id="lookupFishResults" class="results"></div>
+          </div>
+        </div>
       </section>
       <!-- RESTOCK TAB -->
       <section id="tab-restock" class="tab-panel">
@@ -141,9 +212,34 @@
             <datalist id="ownerOptions"></datalist>
           </label>
 
-          <button type="submit" class="primary-btn" id="addSubmitBtn">Add Entry</button>
+          <button type="submit" class="primary-btn" id="addSubmitBtn" title="Save this new gear item">Add Gear</button>
           <p id="addStatus" class="status-msg" role="status"></p>
         </form>
+      </section>
+
+      <!-- VALIDATIONS TAB -->
+      <section id="tab-validations" class="tab-panel">
+        <p class="hint">
+          Manage the Brands, Owners, Float Types, Fish Types, and Venues offered throughout the app.
+          Deleting a value only removes it from this list — any existing gear or catches that reference it
+          are hidden, not deleted, and reappear automatically if you add the same value back.
+        </p>
+        <div id="validationsGrid" class="validation-grid">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Loading validations&hellip;</span>
+          </div>
+        </div>
+        <div id="validationSeedBar" class="validation-seed-bar" hidden>
+          <button
+            type="button"
+            class="secondary-btn"
+            id="seedValidationsBtn"
+            title="Scan existing gear and catches and add whatever's missing to the lists above">
+            🔄 Populate from existing data
+          </button>
+          <span class="hint validation-seed-hint" id="validationSeedHint"></span>
+        </div>
       </section>
     </main>
   </div>
@@ -152,7 +248,7 @@
     <div class="modal-card modal-large">
       <div class="modal-header">
         <h3 id="fishModalTitle">Caught with this</h3>
-        <button type="button" class="modal-close" id="fishModalClose" aria-label="Close">&times;</button>
+        <button type="button" class="modal-close" id="fishModalClose" aria-label="Close" title="Close">&times;</button>
       </div>
       <div id="fishModalBody" class="modal-body"></div>
     </div>
@@ -168,7 +264,8 @@
             <button
                 type="button"
                 class="modal-close"
-                id="recordCatchClose">
+                id="recordCatchClose"
+                title="Close">
 
                 &times;
 
@@ -240,7 +337,8 @@
 
                 <button
                     type="submit"
-                    class="primary-btn">
+                    class="primary-btn"
+                    title="Save this catch">
 
                     Save Catch
 
@@ -257,12 +355,29 @@
     <div class="modal-card modal-small">
       <div class="modal-header modal-header-warning">
         <h3 id="infoModalTitle">Just a moment</h3>
-        <button type="button" class="modal-close" id="infoModalClose" aria-label="Close">&times;</button>
+        <button type="button" class="modal-close" id="infoModalClose" aria-label="Close" title="Close">&times;</button>
       </div>
       <div class="modal-body">
         <p class="info-modal-icon">⚠️</p>
         <p id="infoModalMessage" class="info-modal-message"></p>
-        <button type="button" class="primary-btn" id="infoModalOk">Got it, thanks</button>
+        <button type="button" class="primary-btn" id="infoModalOk" title="Dismiss">Got it, thanks</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirmModal" class="modal-overlay" hidden>
+    <div class="modal-card modal-small">
+      <div class="modal-header modal-header-warning">
+        <h3 id="confirmModalTitle">Please confirm</h3>
+        <button type="button" class="modal-close" id="confirmModalClose" aria-label="Close" title="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="info-modal-icon">⚠️</p>
+        <p id="confirmModalMessage" class="info-modal-message"></p>
+        <div class="confirm-modal-actions">
+          <button type="button" class="secondary-btn" id="confirmModalCancel" title="Cancel, don't do this">Cancel</button>
+          <button type="button" class="danger-btn" id="confirmModalConfirm" title="Confirm and proceed">Delete</button>
+        </div>
       </div>
     </div>
   </div>

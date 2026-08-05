@@ -39,6 +39,16 @@ const VALIDATION_COLUMNS = {
 };
 const CATEGORIES = ['Dips', 'Sprays', 'Corn', 'Floats', 'Dough'];
 
+// Maps the field names used by the client's Validations tab to the
+// Validations sheet column they live in.
+const VALIDATION_FIELDS = {
+  brands: VALIDATION_COLUMNS.BRANDS,
+  owners: VALIDATION_COLUMNS.OWNERS,
+  floatTypes: VALIDATION_COLUMNS.FLOAT_TYPES,
+  fishTypes: VALIDATION_COLUMNS.FISH_TYPES,
+  venues: VALIDATION_COLUMNS.VENUES
+};
+
 const FISH_SHEET_NAME = 'Fishes Caught';
 
 // Keywords used to locate each category's column in the Fishes Caught
@@ -79,8 +89,8 @@ function getValidationList_(column) {
 }
 
 /**
- * Appends a value to a Validations column if it isn't already present
- * (case-insensitive).
+ * Adds a value to a Validations column if it isn't already present
+ * (case-insensitive), writing it into that column's own first empty row.
  * @param {number} column - 1-based column index on the Validations sheet.
  * @param {string} value - Value to add.
  * @return {void}
@@ -98,12 +108,246 @@ function addValidationValue_(column, value) {
 
   if (existing.includes(value.toLowerCase())) return;
 
-  sheet.appendRow(
-    Array(column - 1)
-      .fill("")
-      .concat(value)
-  );
+  // Each Validations column is an independent list, so "the next free
+  // row" has to be found within this specific column — not via
+  // sheet.appendRow(), which appends after the sheet's overall last row
+  // (governed by whichever column happens to be the longest). Using
+  // appendRow() here left a gap of blank rows in every shorter column
+  // each time a value was added to a longer one.
+  const lastRow = Math.max(sheet.getLastRow(), 1);
+  const columnValues = sheet
+    .getRange(2, column, Math.max(lastRow - 1, 1))
+    .getValues()
+    .flat();
+
+  let blankOffset = columnValues.findIndex(v => !String(v || "").trim());
+  if (blankOffset === -1) blankOffset = columnValues.length;
+
+  sheet.getRange(2 + blankOffset, column).setValue(value);
 }
+
+/**
+ * Resolves a client-facing Validations field name ("brands", "owners",
+ * "floatTypes", "fishTypes", "venues") to its sheet column, throwing if
+ * the field name isn't recognized.
+ * @param {string} field - One of the VALIDATION_FIELDS keys.
+ * @return {number} 1-based column index on the Validations sheet.
+ */
+function getValidationColumn_(field) {
+  const column = VALIDATION_FIELDS[field];
+  if (!column) {
+    throw new Error('Unknown validations field: ' + field);
+  }
+  return column;
+}
+
+/**
+ * Adds a new value to a Validations list from the Validations tab's "Add"
+ * form. Thin wrapper around addValidationValue_ that also validates the
+ * field name and the value itself.
+ * @param {string} field - One of the VALIDATION_FIELDS keys.
+ * @param {string} value - Value to add.
+ * @return {Object} {success: boolean}
+ */
+function addValidationEntry(field, value) {
+  const column = getValidationColumn_(field);
+
+  value = String(value || '').trim();
+  if (!value) {
+    throw new Error('Value is required.');
+  }
+
+  addValidationValue_(column, value);
+  return { success: true };
+}
+
+/**
+ * Renames an existing Validations value in place (same row, same column —
+ * no shifting needed), then cascades the rename to every gear/catch row
+ * that referenced the old value, so nothing gets silently orphaned by a
+ * rename the way a delete deliberately orphans things (see
+ * deleteValidationEntry — rename and delete behave differently on
+ * purpose: a delete is meant to hide, a rename is meant to relabel
+ * everything that used the old name).
+ * @param {string} field - One of the VALIDATION_FIELDS keys.
+ * @param {string} oldValue - Existing value to rename.
+ * @param {string} newValue - New text for that value.
+ * @return {Object} {success: boolean}
+ */
+function updateValidationEntry(field, oldValue, newValue) {
+  const column = getValidationColumn_(field);
+
+  newValue = String(newValue || '').trim();
+  if (!newValue) {
+    throw new Error('Value is required.');
+  }
+
+  const sheet = getValidationSheet_();
+  const lastRow = sheet.getLastRow();
+  const range = sheet.getRange(2, column, Math.max(lastRow - 1, 1));
+  const values = range.getValues().map(row => String(row[0] || '').trim());
+
+  const oldLower = String(oldValue || '').trim().toLowerCase();
+  const rowOffset = values.findIndex(v => v.toLowerCase() === oldLower);
+  if (rowOffset === -1) {
+    throw new Error('"' + oldValue + '" was not found.');
+  }
+
+  const newLower = newValue.toLowerCase();
+  const isDuplicate = values.some((v, i) => i !== rowOffset && v.toLowerCase() === newLower);
+  if (isDuplicate) {
+    throw new Error('"' + newValue + '" already exists.');
+  }
+
+  sheet.getRange(2 + rowOffset, column).setValue(newValue);
+  cascadeValidationRename_(field, oldValue, newValue);
+
+  return { success: true };
+}
+
+/**
+ * Propagates a Validations rename to every gear/catch row that referenced
+ * the old value, so e.g. renaming a brand relabels every item that had
+ * the old brand name instead of leaving them pointing at text that no
+ * longer exists in Validations.
+ * @param {string} field - One of the VALIDATION_FIELDS keys.
+ * @param {string} oldValue - Value being replaced.
+ * @param {string} newValue - Replacement value.
+ * @return {void}
+ */
+function cascadeValidationRename_(field, oldValue, newValue) {
+  switch (field) {
+    case 'owners':
+      renameGearColumnValue_('owner', oldValue, newValue);
+      renameFishColumnValue_('owner', oldValue, newValue);
+      break;
+    case 'brands':
+      renameGearColumnValue_('brand', oldValue, newValue);
+      break;
+    case 'floatTypes':
+      renameGearColumnValue_('type', oldValue, newValue, ['Floats']);
+      break;
+    case 'fishTypes':
+      renameFishColumnValue_('fishType', oldValue, newValue);
+      break;
+    case 'venues':
+      renameFishColumnValue_('where', oldValue, newValue);
+      break;
+  }
+}
+
+/**
+ * Renames every occurrence of a value (case-insensitive, trimmed) in one
+ * column of one or more gear category sheets, found by matching the
+ * column's header text.
+ * @param {string} field - "brand", "owner", or "type" (matched against each sheet's header row; "type" also matches "float type").
+ * @param {string} oldValue - Value to replace.
+ * @param {string} newValue - Replacement value.
+ * @param {Array<string>} [categories] - Categories to update (defaults to all of CATEGORIES).
+ * @return {void}
+ */
+function renameGearColumnValue_(field, oldValue, newValue, categories) {
+  const oldLower = oldValue.toLowerCase();
+  const headerNames = field === 'type' ? ['type', 'float type'] : [field];
+
+  (categories || CATEGORIES).forEach(function (category) {
+    const sheet = getSheetByCategory_(category);
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return;
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
+      .map(h => String(h || '').trim().toLowerCase());
+
+    let column = -1;
+    for (const name of headerNames) {
+      const headerIndex = headers.indexOf(name);
+      if (headerIndex !== -1) { column = headerIndex + 1; break; }
+    }
+    if (column === -1) return;
+
+    const range = sheet.getRange(2, column, lastRow - 1);
+    const values = range.getValues();
+    let changed = false;
+
+    values.forEach(function (row) {
+      if (String(row[0] || '').trim().toLowerCase() === oldLower) {
+        row[0] = newValue;
+        changed = true;
+      }
+    });
+
+    if (changed) range.setValues(values);
+  });
+}
+
+/**
+ * Renames every occurrence of a value (case-insensitive, trimmed) in one
+ * column of the Fishes Caught sheet.
+ * @param {string} field - "owner", "fishType", or "where".
+ * @param {string} oldValue - Value to replace.
+ * @param {string} newValue - Replacement value.
+ * @return {void}
+ */
+function renameFishColumnValue_(field, oldValue, newValue) {
+  const columnByField = { fishType: 1, where: 3, owner: 5 };
+  const column = columnByField[field];
+  if (!column) return;
+
+  const sheet = SpreadsheetApp.getActive().getSheetByName(FISH_SHEET_NAME);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const oldLower = oldValue.toLowerCase();
+  const range = sheet.getRange(2, column, lastRow - 1);
+  const values = range.getValues();
+  let changed = false;
+
+  values.forEach(function (row) {
+    if (String(row[0] || '').trim().toLowerCase() === oldLower) {
+      row[0] = newValue;
+      changed = true;
+    }
+  });
+
+  if (changed) range.setValues(values);
+}
+
+/**
+ * Removes a value from a Validations list only — it does not touch the
+ * gear/catch sheets that may reference it. This is a deliberate soft
+ * delete: e.g. deleting an owner just removes them from the Owners list,
+ * so their existing gear/catches (which the frontend hides once the owner
+ * is no longer a recognized value) come back automatically if the same
+ * owner name is added again later, with nothing to manually restore.
+ * @param {string} field - One of the VALIDATION_FIELDS keys.
+ * @param {string} value - Value to remove.
+ * @return {Object} {success: boolean}
+ */
+function deleteValidationEntry(field, value) {
+  const column = getValidationColumn_(field);
+
+  const sheet = getValidationSheet_();
+  const lastRow = sheet.getLastRow();
+  const range = sheet.getRange(2, column, Math.max(lastRow - 1, 1));
+  const values = range.getValues().map(row => String(row[0] || '').trim());
+
+  const targetLower = String(value || '').trim().toLowerCase();
+  const remaining = values.filter(v => v.toLowerCase() !== targetLower);
+  if (remaining.length === values.length) {
+    throw new Error('"' + value + '" was not found.');
+  }
+
+  // Rewrite the column: remaining values shifted up, padded with blanks
+  // so the row the removed value used to occupy is cleared. The other
+  // Validations columns are untouched — each column is an independent
+  // list, not a per-row record, so this can't disturb them.
+  const padding = Array(values.length - remaining.length).fill('');
+  const newColumn = remaining.concat(padding).map(v => [v]);
+  range.setValues(newColumn);
+
+  return { success: true };
+}
+
 /**
  * Serves the web app HTML.
  * @param {Object} e - Apps Script event object (unused).
@@ -219,7 +463,7 @@ function getAllData() {
 }
 
 /**
- * Builds the dropdown option lists for the Add Entry form: known brands,
+ * Builds the dropdown option lists for the Add Gear form: known brands,
  * owners, and float types — combining the Validations sheet with anything
  * already present in the data (in case Validations is incomplete).
  * @return {Object} {brands: string[], owners: string[], floatTypes: string[]}
@@ -252,7 +496,7 @@ function saveVenueIfNew_(venue) {
 
 /**
  * Appends a new fish catch entry to the fishes caught sheet, recording any
- * new venue/fish type into the Validations sheet along the way.
+ * new venue/fish type/owner into the Validations sheet along the way.
  * @param {Object} catchData - {fishType, weight, where, date, owner, dips, floats, corn, sprays, dough}.
  * @return {boolean} true on success.
  */
@@ -264,6 +508,10 @@ function saveFishCatch(catchData) {
   addValidationValue_(
     VALIDATION_COLUMNS.FISH_TYPES,
     catchData.fishType
+  );
+  addValidationValue_(
+    VALIDATION_COLUMNS.OWNERS,
+    catchData.owner
   );
   sheet.appendRow([
     catchData.fishType,
@@ -335,7 +583,28 @@ function addEntry(entry) {
     sheet.appendRow([brand, name, owner]);
   }
 
+  registerGearValidations_(entry.category, brand, type, owner);
+
   return { success: true };
+}
+
+/**
+ * Auto-registers a gear entry's Owner/Brand/Type (Floats only) into the
+ * Validations sheet if they're new, the same way saveFishCatch already
+ * registers new venues/fish types. This means values typed into the Add
+ * Gear form never need to be added to Validations by hand first.
+ * @param {string} category - One of CATEGORIES.
+ * @param {string} brand - Brand value (may be blank).
+ * @param {string} type - Type value (Floats only; may be blank).
+ * @param {string} owner - Owner value.
+ * @return {void}
+ */
+function registerGearValidations_(category, brand, type, owner) {
+  addValidationValue_(VALIDATION_COLUMNS.OWNERS, owner);
+  addValidationValue_(VALIDATION_COLUMNS.BRANDS, brand);
+  if (category === 'Floats') {
+    addValidationValue_(VALIDATION_COLUMNS.FLOAT_TYPES, type);
+  }
 }
 
 /**
@@ -420,91 +689,6 @@ function findHeaderCol_(lowerHeaders, keyword) {
   return -1;
 }
 /**
- * Manual test helper: logs the fish catch index to the Apps Script logger.
- * @return {void}
- */
-function testFishIndex() {
-  var idx = getFishCatchIndex();
-  Logger.log(JSON.stringify(idx));
-}
-/**
- * Reads the Fish Caught sheet and builds an index of which inventory
- * items were used in which catches, so the UI can show "caught with
- * this" indicators without scanning the whole sheet client-side.
- *
- * @return {Object} categories -> { itemNameLower: [catchEntry, ...] }
- *   where catchEntry = {
- *     rowIndex, fishType, weight,
- *     combo: { category -> [itemNames used in that same catch] }
- *   }
- */
-function getFishCatchIndex() {
-
-  const sheet = SpreadsheetApp.getActive().getSheetByName(FISH_SHEET_NAME);
-
-  const values = sheet.getDataRange().getValues();
-
-  values.shift();
-Logger.log(values[0]);
-  const index = {
-    Dips:{},
-    Sprays:{},
-    Corn:{},
-    Floats:{},
-    Dough:{}
-  };
-
-  values.forEach(function(row){
-
-    const catchEntry = {
-
-      fishType: row[0],
-      weight: row[1],
-      where: row[2],
-      date: Utilities.formatDate(
-        row[3],
-        Session.getScriptTimeZone(),
-        "yyyy-MM-dd"
-      ),
-      owner: row[4],
-
-      combo:{
-        Dips: parseList_(row[5]),
-        Floats: parseList_(row[6]),
-        Corn: parseList_(row[7]),
-        Sprays: parseList_(row[8]),
-        Dough: parseList_(row[9])
-      }
-
-    };
-
-    Object.keys(catchEntry.combo).forEach(function(category){
-
-      catchEntry.combo[category].forEach(function (item) {
-
-        if (!item) return;
-
-        item = String(item).trim();
-
-        const key = String(item).trim().toLowerCase();
-
-        if (!index[category][key]) {
-          index[category][key] = [];
-        }
-
-        index[category][key].push(catchEntry);
-
-      });
-
-    });
-
-  });
-
-  return index;
-
-}
-
-/**
  * Parses a Fish Caught "X used" cell value into an array of item names.
  * Accepts a JSON array string, a comma-separated string, or an already-
  * parsed array.
@@ -564,6 +748,126 @@ function getFishCatches() {
 
   });
 
+}
+
+/**
+ * Collects distinct, trimmed, non-empty values of one field across one or
+ * more gear category sheets.
+ * @param {string} field - "brand", "type", or "owner" (matches readCategorySheet_'s row shape).
+ * @param {Array<string>} [categories] - Categories to scan (defaults to all of CATEGORIES).
+ * @return {Array<string>} Distinct values found.
+ */
+function collectGearValues_(field, categories) {
+  const values = new Set();
+  (categories || CATEGORIES).forEach(function (cat) {
+    readCategorySheet_(cat).forEach(function (item) {
+      const value = (item[field] || '').toString().trim();
+      if (value) values.add(value);
+    });
+  });
+  return Array.from(values);
+}
+
+/**
+ * Collects distinct, trimmed, non-empty values of one field across every
+ * row of the Fishes Caught sheet.
+ * @param {string} field - "owner", "fishType", or "where" (matches getFishCatches()'s row shape).
+ * @return {Array<string>} Distinct values found.
+ */
+function collectFishValues_(field) {
+  const values = new Set();
+  getFishCatches().forEach(function (c) {
+    const value = (c[field] || '').toString().trim();
+    if (value) values.add(value);
+  });
+  return Array.from(values);
+}
+
+/**
+ * Finds which of candidateValues aren't already present (case-insensitive)
+ * in a Validations column, without writing anything.
+ * @param {number} column - 1-based column index on the Validations sheet.
+ * @param {Array<string>} candidateValues - Values to check.
+ * @return {Array<string>} The candidate values that are missing, deduplicated, in their original casing.
+ */
+function findMissingValidationValues_(column, candidateValues) {
+  const existingLower = getValidationList_(column).map(v => v.toLowerCase());
+  const seenLower = new Set();
+  const missing = [];
+
+  candidateValues.forEach(function (value) {
+    const lower = value.toLowerCase();
+    if (existingLower.includes(lower) || seenLower.has(lower)) return;
+    seenLower.add(lower);
+    missing.push(value);
+  });
+
+  return missing;
+}
+
+/**
+ * Scans every gear sheet and the Fishes Caught sheet for Owner/Brand/Float
+ * Type/Fish Type/Venue values already in use, and returns whichever ones
+ * aren't yet in the Validations sheet, without writing anything. Shared by
+ * previewValidationSeed() (read-only) and seedValidationsFromExistingData()
+ * (which writes these same values).
+ * @return {Object} {owners, brands, floatTypes, fishTypes, venues} — each an array of missing values.
+ */
+function computeMissingValidationValues_() {
+  const ownerValues = collectGearValues_('owner').concat(collectFishValues_('owner'));
+
+  return {
+    owners: findMissingValidationValues_(VALIDATION_COLUMNS.OWNERS, ownerValues),
+    brands: findMissingValidationValues_(VALIDATION_COLUMNS.BRANDS, collectGearValues_('brand')),
+    floatTypes: findMissingValidationValues_(VALIDATION_COLUMNS.FLOAT_TYPES, collectGearValues_('type', ['Floats'])),
+    fishTypes: findMissingValidationValues_(VALIDATION_COLUMNS.FISH_TYPES, collectFishValues_('fishType')),
+    venues: findMissingValidationValues_(VALIDATION_COLUMNS.VENUES, collectFishValues_('where'))
+  };
+}
+
+/**
+ * Read-only preview of what seedValidationsFromExistingData() would add,
+ * without writing anything. Used by the Validations tab to decide whether
+ * to show the "Populate from existing data" button, and to list what it
+ * would add.
+ * @return {Object} {owners, brands, floatTypes, fishTypes, venues} — each an array of missing values.
+ */
+function previewValidationSeed() {
+  return computeMissingValidationValues_();
+}
+
+/**
+ * One-time backfill for existing spreadsheets: adds whichever
+ * Owner/Brand/Float Type/Fish Type/Venue values are already in use in the
+ * gear/Fishes Caught sheets but not yet in the Validations sheet. Since
+ * the app hides any gear/catch whose owner (or brand/type/fish type/venue)
+ * isn't a recognized Validations value, spreadsheets with data typed in
+ * before Validations existed — or edited directly rather than through the
+ * app — could have values that are in use but not "known", making that
+ * gear/those catches invisible. Run from the Validations tab's "Populate
+ * from existing data" button.
+ * @return {Object} {success: boolean, added: {owners, brands, floatTypes, fishTypes, venues}} counts of newly added values per list.
+ */
+function seedValidationsFromExistingData() {
+  const missing = computeMissingValidationValues_();
+
+  Object.keys(missing).forEach(function (field) {
+    const column = getValidationColumn_(field);
+    missing[field].forEach(function (value) {
+      addValidationValue_(column, value);
+    });
+  });
+
+  return {
+    success: true,
+    added: {
+      owners: missing.owners.length,
+      brands: missing.brands.length,
+      floatTypes: missing.floatTypes.length,
+      fishTypes: missing.fishTypes.length,
+      venues: missing.venues.length
+    }
+  };
 }
 
 /**
