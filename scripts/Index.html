@@ -192,8 +192,14 @@
 
           <label class="field">
             <span>Brand</span>
-            <input id="addBrand" list="brandOptions" placeholder="e.g. Hengel Vriend" autocomplete="off">
-            <datalist id="brandOptions"></datalist>
+            <select id="addBrand">
+              <option value="" disabled selected>Select brand…</option>
+              <option value="__other__">Other…</option>
+            </select>
+          </label>
+          <label class="field" id="addBrandOtherField" hidden>
+            <span>New Brand</span>
+            <input id="addBrandOther" placeholder="e.g. Hengel Vriend" autocomplete="off">
           </label>
 
           <label class="field">
@@ -203,14 +209,26 @@
 
           <label class="field" id="typeField" hidden>
             <span>Type</span>
-            <input id="addType" list="floatTypeOptions" placeholder="e.g. Soft / Ooze" autocomplete="off">
-            <datalist id="floatTypeOptions"></datalist>
+            <select id="addType">
+              <option value="" disabled selected>Select type…</option>
+              <option value="__other__">Other…</option>
+            </select>
+          </label>
+          <label class="field" id="addTypeOtherField" hidden>
+            <span>New Type</span>
+            <input id="addTypeOther" placeholder="e.g. Soft / Ooze" autocomplete="off">
           </label>
 
           <label class="field">
             <span>Owner</span>
-            <input id="addOwner" list="ownerOptions" placeholder="Owner" required autocomplete="off">
-            <datalist id="ownerOptions"></datalist>
+            <select id="addOwner">
+              <option value="" disabled selected>Select owner…</option>
+              <option value="__other__">Other…</option>
+            </select>
+          </label>
+          <label class="field" id="addOwnerOtherField" hidden>
+            <span>New Owner</span>
+            <input id="addOwnerOther" placeholder="Owner" autocomplete="off">
           </label>
 
           <button type="submit" class="primary-btn" id="addSubmitBtn" title="Save this new gear item">Add Gear</button>
@@ -310,12 +328,14 @@
 
                 <label class="field">
                     <span>Fish</span>
-                    <input
-                        id="catchFishType"
-                        list="fishTypeOptions"
-                        required>
-
-                    <datalist id="fishTypeOptions"></datalist>
+                    <select id="catchFishType">
+                        <option value="" disabled selected>Select fish…</option>
+                        <option value="__other__">Other…</option>
+                    </select>
+                </label>
+                <label class="field" id="catchFishTypeOtherField" hidden>
+                    <span>New Fish</span>
+                    <input id="catchFishTypeOther">
                 </label>
 
                 <label class="field">
@@ -328,10 +348,14 @@
 
                 <label class="field">
                     <span>Caught By</span>
-                    <input
-                        id="catchOwner"
-                        list="ownerOptions"
-                        required>
+                    <select id="catchOwner">
+                        <option value="" disabled selected>Select owner…</option>
+                        <option value="__other__">Other…</option>
+                    </select>
+                </label>
+                <label class="field" id="catchOwnerOtherField" hidden>
+                    <span>New Owner</span>
+                    <input id="catchOwnerOther">
                 </label>
 
                 <label class="field">

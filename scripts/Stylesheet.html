@@ -139,6 +139,20 @@
     cursor: not-allowed;
   }
 
+  /* Marks the specific field(s) that blocked a form submission (see
+     markFieldInvalid()/JavaScript.html), so it's obvious at a glance
+     which one needs attention instead of just a generic error message. */
+  select.field-invalid,
+  input.field-invalid {
+    border-color: var(--color-danger);
+  }
+
+  select.field-invalid:focus,
+  input.field-invalid:focus {
+    border-color: var(--color-danger);
+    box-shadow: 0 0 0 3px rgba(179, 64, 31, 0.18);
+  }
+
   .results {
     display: flex;
     flex-direction: column;

@@ -1116,6 +1116,21 @@
         new Date().toISOString().substring(0,10);
 
     document.getElementById("otherVenueField").hidden = true;
+    document.getElementById("catchFishTypeOtherField").hidden = true;
+    document.getElementById("catchFishTypeOther").value = '';
+    document.getElementById("catchOwnerOtherField").hidden = true;
+    document.getElementById("catchOwnerOther").value = '';
+
+    clearFieldsInvalid(['catchFishType', 'catchFishTypeOther', 'catchOwner', 'catchOwnerOther']);
+
+    // form.reset() only re-selects an option if it has the HTML "selected"
+    // attribute — our placeholder options are built dynamically and never
+    // get that attribute, so after reset() the browser's "a select must
+    // always have something selected" fallback picks the first *enabled*
+    // option (i.e. a real fish/owner) instead of the disabled placeholder.
+    // Force it back to blank explicitly rather than relying on reset().
+    document.getElementById("catchFishType").value = '';
+    document.getElementById("catchOwner").value = '';
 
     buildVenueDropdown();
 
@@ -1150,15 +1165,18 @@ function openEditCatchModal(rowIndex){
     currentEditingCatchRowIndex = rowIndex;
     currentCatchItem = null;
 
+    clearFieldsInvalid(['catchFishType', 'catchFishTypeOther', 'catchOwner', 'catchOwnerOther']);
+
     document.getElementById("recordCatchModalTitle").textContent = "Edit Catch";
     document.getElementById("recordCatchSubmitBtn").textContent = "Save Changes";
 
     document.getElementById("recordCatchForm").reset();
 
     document.getElementById("catchDate").value = existingCatch.date || new Date().toISOString().substring(0,10);
-    document.getElementById("catchFishType").value = existingCatch.fishType || '';
     document.getElementById("catchWeight").value = existingCatch.weight || '';
-    document.getElementById("catchOwner").value = existingCatch.owner || '';
+
+    setChoiceSelectValue('catchFishType', 'catchFishTypeOtherField', 'catchFishTypeOther', existingCatch.fishType || '');
+    setChoiceSelectValue('catchOwner', 'catchOwnerOtherField', 'catchOwnerOther', existingCatch.owner || '');
 
     buildVenueDropdown();
 
@@ -1346,19 +1364,33 @@ function saveCatch(e){
 
     e.preventDefault();
 
+    var fishType = resolveChoiceValue('catchFishType', 'catchFishTypeOther');
+    var owner = resolveChoiceValue('catchOwner', 'catchOwnerOther');
+
+    clearFieldsInvalid(['catchFishType', 'catchFishTypeOther', 'catchOwner', 'catchOwnerOther']);
+
+    var invalidIds = [];
+    if (!fishType) invalidIds.push(choiceInvalidTarget('catchFishType', 'catchFishTypeOther'));
+    if (!owner) invalidIds.push(choiceInvalidTarget('catchOwner', 'catchOwnerOther'));
+
+    if (invalidIds.length) {
+        invalidIds.forEach(markFieldInvalid);
+        document.getElementById(invalidIds[0]).focus();
+        showInfoModal('Fish and Caught By are required — pick "Other…" and type a value if it isn\'t in the list yet.', 'Just a moment');
+        return;
+    }
+
     var submitBtn = e.target.querySelector('button[type="submit"]');
     setButtonBusy(submitBtn);
 
     var data={
 
-        fishType:
-            document.getElementById("catchFishType").value,
+        fishType: fishType,
 
         weight:
             document.getElementById("catchWeight").value,
 
-        owner:
-            document.getElementById("catchOwner").value,
+        owner: owner,
 
         date:
             document.getElementById("catchDate").value,
@@ -1547,6 +1579,12 @@ function setupRecordCatchModal() {
     document
       .getElementById("catchPhotoRemoveBtn")
       .addEventListener("click", handleCatchPhotoRemoveClick);
+
+    wireOtherToggle('catchFishType', 'catchFishTypeOtherField');
+    wireOtherToggle('catchOwner', 'catchOwnerOtherField');
+
+    ['catchFishType', 'catchFishTypeOther', 'catchOwner', 'catchOwnerOther']
+      .forEach(wireClearInvalidOnInput);
 
   }
 
@@ -2517,48 +2555,186 @@ function setupRecordCatchModal() {
   // ---------- ADD ENTRY TAB ----------
 
   /**
-   * Populates the Add Gear form's brand/owner/float-type/fish-type
-   * datalists from the latest validations.
+   * Populates the Add Gear form's Brand/Owner/Type and Record Catch
+   * modal's Fish/Caught By dropdowns from the latest validations.
    * @return {void}
    */
   function populateFormDatalists() {
-    var brandList = document.getElementById('brandOptions');
-    brandList.innerHTML = '';
-    validations.brands.forEach(function (b) {
+    populateChoiceSelect('addBrand', validations.brands, { placeholder: 'Select brand…', placeholderDisabled: true });
+    populateChoiceSelect('addType', validations.floatTypes, { placeholder: 'Select type…', placeholderDisabled: true });
+    populateChoiceSelect('addOwner', validations.owners, { placeholder: 'Select owner…', placeholderDisabled: true });
+    populateChoiceSelect('catchFishType', validations.fishTypes, { placeholder: 'Select fish…', placeholderDisabled: true });
+    populateChoiceSelect('catchOwner', validations.owners, { placeholder: 'Select owner…', placeholderDisabled: true });
+  }
+
+  /**
+   * Populates a "choice" <select> (a real dropdown, replacing the old
+   * datalist-backed text inputs) with known values plus a trailing
+   * "Other…" option for typing a value not yet in the list — paired
+   * with a sibling text field toggled by wireOtherToggle(). Preserves the
+   * current selection if it's still a valid option.
+   * @param {string} selectId - Element id of the <select>.
+   * @param {Array<string>} values - Known values (e.g. validations.owners).
+   * @param {{placeholder: string, placeholderDisabled: boolean}} opts
+   * @return {void}
+   */
+  function populateChoiceSelect(selectId, values, opts) {
+    var select = document.getElementById(selectId);
+    if (!select) return;
+    opts = opts || {};
+    var previousValue = select.value;
+
+    select.innerHTML = '';
+
+    var placeholderOpt = document.createElement('option');
+    placeholderOpt.value = '';
+    placeholderOpt.textContent = opts.placeholder;
+    if (opts.placeholderDisabled) placeholderOpt.disabled = true;
+    select.appendChild(placeholderOpt);
+
+    (values || []).forEach(function (v) {
       var opt = document.createElement('option');
-      opt.value = b;
-      brandList.appendChild(opt);
+      opt.value = v;
+      opt.textContent = v;
+      select.appendChild(opt);
     });
 
-    var ownerList = document.getElementById('ownerOptions');
-    ownerList.innerHTML = '';
-    validations.owners.forEach(function (o) {
-      var opt = document.createElement('option');
-      opt.value = o;
-      ownerList.appendChild(opt);
+    var otherOpt = document.createElement('option');
+    otherOpt.value = '__other__';
+    otherOpt.textContent = 'Other…';
+    select.appendChild(otherOpt);
+
+    var stillValid = Array.prototype.some.call(select.options, function (o) {
+      return o.value === previousValue;
+    });
+    select.value = stillValid ? previousValue : '';
+  }
+
+  /**
+   * Wires a "choice" select (see populateChoiceSelect()) so picking its
+   * "Other…" option reveals the sibling free-text field, and hides it
+   * again otherwise.
+   * @param {string} selectId - Element id of the <select>.
+   * @param {string} otherFieldId - Element id of the sibling <label class="field"> to show/hide.
+   * @return {void}
+   */
+  function wireOtherToggle(selectId, otherFieldId) {
+    var select = document.getElementById(selectId);
+    var otherField = document.getElementById(otherFieldId);
+    if (!select || !otherField) return;
+    select.addEventListener('change', function () {
+      otherField.hidden = select.value !== '__other__';
+      if (!otherField.hidden) {
+        var input = otherField.querySelector('input');
+        if (input) input.focus();
+      }
+    });
+  }
+
+  /**
+   * Reads a "choice" select's effective value: the select's own value,
+   * or (if "Other…" is selected) the trimmed text from its sibling
+   * free-text input.
+   * @param {string} selectId - Element id of the <select>.
+   * @param {string} otherInputId - Element id of the sibling free-text <input>.
+   * @return {string}
+   */
+  function resolveChoiceValue(selectId, otherInputId) {
+    var select = document.getElementById(selectId);
+    if (!select) return '';
+    if (select.value === '__other__') {
+      var otherInput = document.getElementById(otherInputId);
+      return otherInput ? otherInput.value.trim() : '';
+    }
+    return select.value;
+  }
+
+  /**
+   * The element id that should be highlighted (see markFieldInvalid())
+   * when a "choice" select's value is blank: the select itself normally,
+   * or its "Other…" text field when that's what's actually empty.
+   * @param {string} selectId - Element id of the <select>.
+   * @param {string} otherInputId - Element id of the sibling free-text <input>.
+   * @return {string}
+   */
+  function choiceInvalidTarget(selectId, otherInputId) {
+    var select = document.getElementById(selectId);
+    return (select && select.value === '__other__') ? otherInputId : selectId;
+  }
+
+  /**
+   * Adds a red highlight to a field so it's obvious which one blocked
+   * submission, alongside the usual info-modal message.
+   * @param {string} id - Element id of the <input>/<select> to highlight.
+   * @return {void}
+   */
+  function markFieldInvalid(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.add('field-invalid');
+  }
+
+  /**
+   * Removes the highlight added by markFieldInvalid().
+   * @param {string} id - Element id of the <input>/<select>.
+   * @return {void}
+   */
+  function clearFieldInvalid(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.remove('field-invalid');
+  }
+
+  /**
+   * Removes the highlight added by markFieldInvalid() from every field in
+   * a list — called at the start of each validation pass so a field fixed
+   * since the last failed attempt doesn't stay marked red.
+   * @param {Array<string>} ids - Element ids to clear.
+   * @return {void}
+   */
+  function clearFieldsInvalid(ids) {
+    ids.forEach(clearFieldInvalid);
+  }
+
+  /**
+   * Wires a field so its red "invalid" highlight (see markFieldInvalid())
+   * clears itself as soon as the user interacts with it again.
+   * @param {string} id - Element id of the <input>/<select>.
+   * @return {void}
+   */
+  function wireClearInvalidOnInput(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', function () { clearFieldInvalid(id); });
+    el.addEventListener('change', function () { clearFieldInvalid(id); });
+  }
+
+  /**
+   * Sets a "choice" select (see populateChoiceSelect()) to an existing
+   * value, falling back to "Other…" (with the sibling text field shown
+   * and pre-filled) when that value isn't one of the select's options —
+   * used when opening the Record Catch modal to edit an existing catch.
+   * @param {string} selectId - Element id of the <select>.
+   * @param {string} otherFieldId - Element id of the sibling <label class="field">.
+   * @param {string} otherInputId - Element id of the sibling free-text <input>.
+   * @param {string} value - The existing value to select.
+   * @return {void}
+   */
+  function setChoiceSelectValue(selectId, otherFieldId, otherInputId, value) {
+    var select = document.getElementById(selectId);
+    var otherField = document.getElementById(otherFieldId);
+    if (!select) return;
+
+    var hasMatch = Array.prototype.some.call(select.options, function (o) {
+      return o.value === value;
     });
 
-    var floatTypeList = document.getElementById('floatTypeOptions');
-    floatTypeList.innerHTML = '';
-    validations.floatTypes.forEach(function (t) {
-      var opt = document.createElement('option');
-      opt.value = t;
-      floatTypeList.appendChild(opt);
-    });
-    var fishTypeList = document.getElementById('fishTypeOptions');
-
-    if (fishTypeList) {
-
-      fishTypeList.innerHTML = '';
-
-      validations.fishTypes.forEach(function (t) {
-
-        var opt = document.createElement('option');
-        opt.value = t;
-        fishTypeList.appendChild(opt);
-
-      });
-
+    if (hasMatch) {
+      select.value = value;
+      if (otherField) otherField.hidden = true;
+    } else {
+      select.value = '__other__';
+      if (otherField) otherField.hidden = false;
+      var otherInput = document.getElementById(otherInputId);
+      if (otherInput) otherInput.value = value || '';
     }
   }
 
@@ -3006,6 +3182,22 @@ function setupRecordCatchModal() {
     categorySelect.addEventListener('change', toggleTypeField);
     toggleTypeField();
 
+    wireOtherToggle('addBrand', 'addBrandOtherField');
+    wireOtherToggle('addType', 'addTypeOtherField');
+    wireOtherToggle('addOwner', 'addOwnerOtherField');
+
+    ['addName', 'addBrand', 'addBrandOther', 'addType', 'addTypeOther', 'addOwner', 'addOwnerOther']
+      .forEach(wireClearInvalidOnInput);
+
+    function resetOtherFields() {
+      ['addBrandOtherField', 'addTypeOtherField', 'addOwnerOtherField'].forEach(function (id) {
+        document.getElementById(id).hidden = true;
+      });
+      ['addBrandOther', 'addTypeOther', 'addOwnerOther'].forEach(function (id) {
+        document.getElementById(id).value = '';
+      });
+    }
+
     document.getElementById('addForm').addEventListener('submit', function (e) {
       e.preventDefault();
       var status = document.getElementById('addStatus');
@@ -3013,16 +3205,32 @@ function setupRecordCatchModal() {
 
       var entry = {
         category: categorySelect.value,
-        brand: document.getElementById('addBrand').value.trim(),
+        brand: resolveChoiceValue('addBrand', 'addBrandOther'),
         name: document.getElementById('addName').value.trim(),
-        type: document.getElementById('addType').value.trim(),
-        owner: document.getElementById('addOwner').value.trim()
+        type: resolveChoiceValue('addType', 'addTypeOther'),
+        owner: resolveChoiceValue('addOwner', 'addOwnerOther')
       };
 
-      if (!entry.name || !entry.owner) {
+      var typeRequired = !typeField.hidden;
+
+      clearFieldsInvalid(['addName', 'addBrand', 'addBrandOther', 'addType', 'addTypeOther', 'addOwner', 'addOwnerOther']);
+
+      var invalidIds = [];
+      if (!entry.name) invalidIds.push('addName');
+      if (!entry.brand) invalidIds.push(choiceInvalidTarget('addBrand', 'addBrandOther'));
+      if (!entry.owner) invalidIds.push(choiceInvalidTarget('addOwner', 'addOwnerOther'));
+      if (typeRequired && !entry.type) invalidIds.push(choiceInvalidTarget('addType', 'addTypeOther'));
+
+      if (invalidIds.length) {
+        invalidIds.forEach(markFieldInvalid);
+        document.getElementById(invalidIds[0]).focus();
+
         status.className = 'status-msg error';
-        status.textContent = 'Name and Owner are required.';
-        showInfoModal('You must fill in a Name and an Owner before you can save.', 'Just a moment');
+        status.textContent = 'Name, Brand, Owner' + (typeRequired ? ', and Type are' : ' are') + ' required.';
+        showInfoModal(
+          'You must fill in Name, Brand, and Owner' + (typeRequired ? ', and Type,' : ',') + ' before you can save.',
+          'Just a moment'
+        );
         return;
       }
 
@@ -3036,6 +3244,12 @@ function setupRecordCatchModal() {
           status.textContent = 'Added \u2713';
           document.getElementById('addForm').reset();
           toggleTypeField();
+          resetOtherFields();
+          // Same reset()-doesn't-restore-a-disabled-placeholder quirk as
+          // the Record Catch modal — force these back to blank explicitly.
+          document.getElementById('addBrand').value = '';
+          document.getElementById('addType').value = '';
+          document.getElementById('addOwner').value = '';
           clearButtonBusy(submitBtn);
           loadEverything(); // refresh browse/compare with the new entry
         })

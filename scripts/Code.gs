@@ -781,6 +781,8 @@ function addEntry(entry) {
 
   if (!name) throw new Error('Name is required.');
   if (!owner) throw new Error('Owner is required.');
+  if (!brand) throw new Error('Brand is required.');
+  if (entry.category === 'Floats' && !type) throw new Error('Type is required.');
 
   if (itemExists_(entry.category, brand, name, owner)) {
     throw new Error(
