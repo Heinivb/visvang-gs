@@ -387,7 +387,8 @@ function doGet(requestEvent) {
       .evaluate()
       .setTitle('Fishing Inventory')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .setFaviconUrl('https://icons.iconarchive.com/icons/microsoft/fluentui-emoji-flat/256/Fishing-Pole-Flat-icon.png');
   } catch (error) {
     console.error('[Code.gs/doGet]', error);
     // doGet must always return an HtmlOutput (throwing here would just
