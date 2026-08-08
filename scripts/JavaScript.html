@@ -1344,6 +1344,7 @@ function buildBaitSelections(preselected){
                 ' value="' + encodeURIComponent(name) + '"' +
                 (checked?" checked":"")+
                 '> '+
+                escapeHtml(i.brand) + " - " +
                 escapeHtml(name)+
                 '</label>';
 
